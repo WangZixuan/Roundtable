@@ -58,7 +58,14 @@ import { RETRY_MAX_ATTEMPTS } from "./drivers/retry.ts";
 
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { getOrCreateChannel, mirrorActivity, mirrorExchange, mirrorReply, type CommsBus } from "./comms-visibility.ts";
-import { searchMessages } from "./message-db.ts";
+import {
+  activeLeafId as storedActiveLeafId,
+  activeLeafMessage,
+  hasMessage,
+  latestMessage,
+  readMessagePage,
+  searchMessages,
+} from "./message-db.ts";
 import { promptWithReply, transcriptText } from "./replies.ts";
 import { _loadPending, discardDelegations, drainDelegations, pendingDelegationSnapshot, pendingThreads, queueDelegation, type QueueResult } from "./delegations.ts";
 import { drainSteeredMessages, queueSteeredMessage } from "./steer-queue.ts";
@@ -140,7 +147,9 @@ const MIME: Record<string, string> = {
 
 ensureDirs();
 const cfg = loadConfig();
-const registry = new ProviderRegistry(BUILT_IN_DRIVERS);
+const registry = new ProviderRegistry(BUILT_IN_DRIVERS, {
+  catalogFile: join(DATA_DIR, "provider-catalog.json"),
+});
 await registry.load(instanceConfigs(cfg));
 const bundledSkills = loadBundledSkills();
 const availableSkills = () => mergeSkills(bundledSkills, loadUserSkills(join(DATA_DIR, "skills")));
@@ -250,14 +259,19 @@ function askBotAndWait(targetBotId: string, message: string, depth: number, from
 
 // default selection for new bots: first available instance, claude preferred
 async function defaultSelection() {
-  const described = await registry.describe();
+  const described = registry.describeCached();
   const available = described.filter((d) => d.snapshot.state === "available");
   // Deliberately NO fallback to described[0]. Handing a bot an engine whose
   // CLI isn't installed makes it look ready and then fail on send with a raw
   // spawn ENOENT — the single worst first-run experience, and the one every
   // user with no CLIs used to get. An empty selection is honest: the UI shows
   // the setup path instead of a bot that cannot answer.
-  const pick = available.find((d) => d.driverKind === "claudeAgent") ?? available[0];
+  const checking = described.filter((description) => description.refreshing && !description.cached);
+  const pick =
+    available.find((d) => d.driverKind === "claudeAgent") ??
+    available[0] ??
+    checking.find((d) => d.driverKind === "claudeAgent") ??
+    checking[0];
   return { instanceId: pick?.instanceId ?? "", model: pick?.models.default ?? "" };
 }
 let bootSelection = { instanceId: "", model: "" };
@@ -289,9 +303,29 @@ const storedAvatarExists = (avatarUrl: string): boolean =>
 const publicBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => ({
   ...wireBot(bot),
   messages: store.messagesFor(bot.threadId),
+  lastMessage: messagePreview(
+    store.messagesFor(bot.threadId).find((message) => message.id === store.activeLeaf(bot.threadId)) ??
+      store.messagesFor(bot.threadId).at(-1),
+  ),
   activeLeafId: store.activeLeaf(bot.threadId),
   tasks: store.tasks(bot.id).map(wireTask),
 });
+
+const pagedPublicBot = (
+  bot: NonNullable<ReturnType<typeof store.bot>>,
+  limit: number | undefined,
+) => {
+  if (limit === undefined) return publicBot(bot);
+  const latest = latestMessage(bot.threadId);
+  const active = activeLeafMessage(bot.threadId) ?? latest;
+  return {
+    ...wireBot(bot),
+    ...messagePage(bot.threadId, limit),
+    lastMessage: messagePreview(active),
+    activeLeafId: storedActiveLeafId(bot.threadId) ?? active?.id ?? null,
+    tasks: store.tasks(bot.id).map(wireTask),
+  };
+};
 
 let coordination: CoordinationManager | null = null;
 
@@ -359,14 +393,37 @@ function slimMessage(message: Message): Message | Record<string, unknown> {
   return { ...rest, hasImage: true };
 }
 
+/** Sidebar metadata stays bounded even when the latest message is a pasted
+ * document or a full desktop frame. */
+function messagePreview(message: Message | undefined) {
+  if (!message) return undefined;
+  const preview: {
+    id: string;
+    role: Message["role"];
+    kind: Message["kind"];
+    at: number;
+    text?: string;
+    card?: { title: string };
+    tool?: { name: string };
+    from?: { name: string };
+  } = {
+    id: message.id,
+    role: message.role,
+    kind: message.kind,
+    at: message.at,
+  };
+  if (message.text) preview.text = message.text.slice(0, 240);
+  if (message.card) preview.card = { title: message.card.title.slice(0, 240) };
+  if (message.tool) preview.tool = { name: message.tool.name.slice(0, 120) };
+  if (message.from) preview.from = { name: message.from.name.slice(0, 120) };
+  return preview;
+}
+
 /** `limit === undefined` is the original, unpaginated shape. */
 function messagePage(threadId: string, limit: number | undefined, before?: string | null) {
-  const all = store.messagesFor(threadId);
-  if (limit === undefined) return { messages: all };
-  const end = before ? all.findIndex((msg) => msg.id === before) : -1;
-  const stop = end === -1 ? all.length : end;
-  const start = Math.max(0, stop - limit);
-  return { messages: all.slice(start, stop).map(slimMessage), hasMore: start > 0 };
+  if (limit === undefined) return { messages: store.messagesFor(threadId) };
+  const page = readMessagePage(threadId, limit, before);
+  return { messages: page.messages.map(slimMessage), hasMore: page.hasMore };
 }
 
 /** A bounded page centred on a known message, used when a search result is
@@ -440,6 +497,19 @@ function broadcast(payload: Record<string, unknown>) {
   }
   for (const listener of [...desktopFrameListeners]) listener(payload);
 }
+
+async function refreshProviderCatalog(): Promise<Awaited<ReturnType<typeof registry.refresh>>> {
+  resetPathCache();
+  const instances = await registry.refresh();
+  broadcast({ kind: "instances", instances });
+  return instances;
+}
+
+// Provider CLIs may take seconds to probe. Start one shared refresh only
+// after module initialization, without holding server startup or first paint.
+setTimeout(() => {
+  void refreshProviderCatalog().catch(() => {});
+}, 0);
 
 const desktopFrameListeners = new Set<(payload: Record<string, unknown>) => void>();
 
@@ -3073,8 +3143,13 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse): 
       const limit = pageSize(url.searchParams.get("messages"));
       if (limit === null) return json(res, 400, { error: "messages must be a non-negative whole number" });
       return json(res, 200, {
-        bots: store.bots.map((bot) => ({ ...publicBot(bot), ...messagePage(bot.threadId, limit) })),
-        groups: store.groups.map((g) => ({ ...g, coordination: coordination?.latest(g.id), ...messagePage(g.threadId, limit) })),
+        bots: store.bots.map((bot) => pagedPublicBot(bot, limit)),
+        groups: store.groups.map((g) => ({
+          ...g,
+          lastMessage: messagePreview(latestMessage(g.threadId)),
+          coordination: coordination?.latest(g.id),
+          ...messagePage(g.threadId, limit),
+        })),
       });
     }
 
@@ -3097,7 +3172,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse): 
       }
       // An unknown cursor must not silently answer with the newest page —
       // the client would paginate in a circle and never reach the top.
-      if (before && !store.messagesFor(threadId).some((msg) => msg.id === before)) {
+      if (before && !hasMessage(threadId, before)) {
         return json(res, 404, { error: "no such message" });
       }
       return json(res, 200, messagePage(threadId, limit ?? DEFAULT_PAGE, before));
@@ -4339,9 +4414,16 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse): 
     // The bot record answers with its messages because switching tasks
     // changes which transcript is live, and a partial patch would leave
     // the client showing the previous task's conversation.
-    const botWithThread = (bot: NonNullable<ReturnType<typeof store.bot>>) => ({
+    const botWithThread = (
+      bot: NonNullable<ReturnType<typeof store.bot>>,
+      limit: number | undefined = undefined,
+    ) => ({
       ...wireBot(bot),
-      messages: store.messagesFor(bot.threadId),
+      ...messagePage(bot.threadId, limit),
+      lastMessage: messagePreview(
+        store.messagesFor(bot.threadId).find((message) => message.id === store.activeLeaf(bot.threadId)) ??
+          store.messagesFor(bot.threadId).at(-1),
+      ),
       activeLeafId: store.activeLeaf(bot.threadId),
       tasks: store.tasks(bot.id).map(wireTask),
     });
@@ -4354,17 +4436,25 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse): 
       const body = await readBody(req);
       const task = store.createTask(bot.id, typeof body.title === "string" ? body.title : undefined);
       if (!task) return json(res, 500, { error: "couldn't create that task" });
-      const fresh = botWithThread(store.bot(bot.id)!);
+      const limit = pageSize(url.searchParams.get("messages"));
+      if (limit === null) return json(res, 400, { error: "messages must be a non-negative whole number" });
+      const fresh = botWithThread(store.bot(bot.id)!, limit);
       broadcast({ kind: "bot", bot: fresh });
-      return json(res, 201, { bot: fresh, task: wireTask(task) });
+      return json(res, 201, {
+        bot: fresh,
+        task: wireTask(task),
+        hasMore: "hasMore" in fresh && fresh.hasMore === true,
+      });
     }
     m = path.match(/^\/api\/bots\/([\w-]+)\/tasks\/([\w-]+)$/);
     if (m && method === "POST") {
       const switched = store.switchTask(m[1], m[2]);
       if (!switched) return json(res, 404, { error: "no such task" });
-      const fresh = botWithThread(switched);
+      const limit = pageSize(url.searchParams.get("messages"));
+      if (limit === null) return json(res, 400, { error: "messages must be a non-negative whole number" });
+      const fresh = botWithThread(switched, limit);
       broadcast({ kind: "bot", bot: fresh });
-      return json(res, 200, { bot: fresh });
+      return json(res, 200, { bot: fresh, hasMore: "hasMore" in fresh && fresh.hasMore === true });
     }
     if (m && method === "PATCH") {
       const body = await readBody(req);
@@ -4393,9 +4483,11 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse): 
       }
       const updated = store.deleteTask(m[1], m[2]);
       if (!updated) return json(res, 400, { error: "a bot keeps at least one task" });
-      const fresh = botWithThread(updated);
+      const limit = pageSize(url.searchParams.get("messages"));
+      if (limit === null) return json(res, 400, { error: "messages must be a non-negative whole number" });
+      const fresh = botWithThread(updated, limit);
       broadcast({ kind: "bot", bot: fresh });
-      return json(res, 200, { bot: fresh });
+      return json(res, 200, { bot: fresh, hasMore: "hasMore" in fresh && fresh.hasMore === true });
     }
 
     // Utility-process liveness and identity response used by diagnostics and
@@ -4442,8 +4534,12 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse): 
       // run?", and the interesting case is a CLI installed since launch.
       // Windows never pushes PATH changes into a live process, so without
       // this the answer is frozen at boot and "check again" is a no-op.
-      resetPathCache();
-      return json(res, 200, { instances: await registry.describe() });
+      if (url.searchParams.get("refresh") === "1") {
+        return json(res, 200, { instances: await refreshProviderCatalog() });
+      }
+      const instances = registry.describeCached();
+      void refreshProviderCatalog().catch(() => {});
+      return json(res, 200, { instances });
     }
 
     // ── CLI binary discovery for the Engines "detected" dropdown ──
@@ -4504,8 +4600,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse): 
         // rescan BEFORE describe(): the response's cliCandidates are computed
         // from the memoized PATH, so resetting after would answer this request
         // with the pre-reset cache
-        resetPathCache();
-        return json(res, 200, { instances: await registry.describe() });
+        return json(res, 200, { instances: await refreshProviderCatalog() });
       } finally {
         providerConfigBusy = false;
       }

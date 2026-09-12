@@ -1,7 +1,10 @@
 // The registry's contract is forward/backward compatibility: a config
 // written by a newer or differently-built app must load as an
 // unavailable shadow, never crash the fleet. These tests pin that.
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it, vi } from "vitest";
 
 import { makeFakeDriver } from "../testing/fake-driver.ts";
 import { ProviderRegistry } from "./registry.ts";
@@ -121,6 +124,69 @@ describe("ProviderRegistry", () => {
 
     const [described] = await registry.describe();
     expect(described.capabilities.effortLevels).toBeUndefined();
+  });
+
+  it("single-flights concurrent catalog refreshes", async () => {
+    const fake = makeFakeDriver();
+    const registry = new ProviderRegistry([fake.driver]);
+    await registry.load({ a: { driver: "fake" } });
+    const refreshModels = vi.fn(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    Object.assign(fake.created.get("a")!.instance, { refreshModels });
+
+    const first = registry.refresh();
+    const second = registry.refresh();
+
+    expect(first).toBe(second);
+    await Promise.all([first, second]);
+    expect(refreshModels).toHaveBeenCalledTimes(1);
+  });
+
+  it("serves a matching persisted catalog without probing", async () => {
+    const root = mkdtempSync(join(tmpdir(), "roundtable-provider-catalog-"));
+    const catalogFile = join(root, "catalog.json");
+    try {
+      const firstFake = makeFakeDriver();
+      const first = new ProviderRegistry([firstFake.driver], { catalogFile });
+      await first.load({ a: { driver: "fake" } });
+      await first.refresh();
+
+      const secondFake = makeFakeDriver();
+      const second = new ProviderRegistry([secondFake.driver], { catalogFile });
+      await second.load({ a: { driver: "fake" } });
+      const cached = second.describeCached();
+
+      expect(cached[0]).toMatchObject({
+        instanceId: "a",
+        snapshot: { state: "available" },
+        cached: true,
+        refreshing: true,
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("invalidates a persisted catalog when provider configuration changes", async () => {
+    const root = mkdtempSync(join(tmpdir(), "roundtable-provider-catalog-"));
+    const catalogFile = join(root, "catalog.json");
+    try {
+      const first = new ProviderRegistry([makeFakeDriver().driver], { catalogFile });
+      await first.load({ a: { driver: "fake" } });
+      await first.refresh();
+
+      const second = new ProviderRegistry([makeFakeDriver().driver], { catalogFile });
+      await second.load({ b: { driver: "fake" } });
+
+      expect(second.describeCached()[0]).toMatchObject({
+        instanceId: "b",
+        snapshot: { state: "unavailable", reason: "Checking provider availability…" },
+        refreshing: true,
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("disposeAll disposes every live instance and empties the registry", async () => {

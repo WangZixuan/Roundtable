@@ -1,5 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Loader2, Menu } from "lucide-react";
+import { Component, lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ErrorInfo, type ReactNode } from "react";
+import { AlertTriangle, Loader2, Menu, RefreshCw } from "lucide-react";
 import { StoreProvider, useStore } from "@/state/store";
 import { Onboarding } from "@/components/Onboarding";
 import { emailGateDone, initAnalytics } from "@/lib/analytics";
@@ -7,17 +7,85 @@ import { unreadConversationCount } from "@/lib/unread";
 import { Sidebar } from "@/components/Sidebar";
 import { ChatView } from "@/components/ChatView";
 import { GroupView } from "@/components/GroupView";
-import { SettingsPanel } from "@/components/SettingsPanel";
-import { InspectorPanel } from "@/components/InspectorPanel";
-import { SettingsModal } from "@/components/SettingsModal";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { DesktopCapabilitiesProvider } from "@/components/DesktopCapabilities";
-import { RoutinesPage } from "@/components/RoutinesPage";
 import { NoEngines } from "@/components/NoEngines";
 import { CommandPalette } from "@/components/CommandPalette";
-import { SkillRecorderPage } from "@/components/SkillRecorderPage";
-import { TeamMapPage } from "@/components/TeamMapPage";
 import { setTitleBarSurface } from "@/lib/skins";
+
+const SettingsPanel = lazy(() =>
+  import("@/components/SettingsPanel").then((module) => ({ default: module.SettingsPanel })),
+);
+const InspectorPanel = lazy(() =>
+  import("@/components/InspectorPanel").then((module) => ({ default: module.InspectorPanel })),
+);
+const SettingsModal = lazy(() =>
+  import("@/components/SettingsModal").then((module) => ({ default: module.SettingsModal })),
+);
+const RoutinesPage = lazy(() =>
+  import("@/components/RoutinesPage").then((module) => ({ default: module.RoutinesPage })),
+);
+const SkillRecorderPage = lazy(() =>
+  import("@/components/SkillRecorderPage").then((module) => ({ default: module.SkillRecorderPage })),
+);
+const TeamMapPage = lazy(() =>
+  import("@/components/TeamMapPage").then((module) => ({ default: module.TeamMapPage })),
+);
+
+interface LazyErrorState {
+  error: Error | null;
+}
+
+class LazyErrorBoundary extends Component<
+  { children: ReactNode },
+  LazyErrorState
+> {
+  state: LazyErrorState = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("Deferred UI failed to load", error, info);
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div role="alert" className="flex min-h-32 flex-1 items-center justify-center bg-app p-6">
+        <div className="flex max-w-sm flex-col items-center gap-3 rounded-xl border border-hairline/50 bg-panel p-5 text-center text-ink">
+          <AlertTriangle size={20} className="text-danger" />
+          <p className="text-[13px] text-ink-secondary">This part of Roundtable could not be loaded.</p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12.5px] font-medium text-white"
+          >
+            <RefreshCw size={13} /> Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+}
+
+function LazyFallback() {
+  return (
+    <div className="flex min-h-32 flex-1 items-center justify-center bg-app text-ink-secondary">
+      <Loader2 size={18} className="animate-spin" />
+      <span className="ml-2 text-[13px]">Loading…</span>
+    </div>
+  );
+}
+
+function Deferred({ children }: { children: ReactNode }) {
+  return (
+    <LazyErrorBoundary>
+      <Suspense fallback={<LazyFallback />}>{children}</Suspense>
+    </LazyErrorBoundary>
+  );
+}
 
 function Shell() {
   const { state, dispatch } = useStore();
@@ -39,6 +107,7 @@ function Shell() {
   const noEngines =
     state.connected &&
     state.instances.length > 0 &&
+    !state.instances.some((instance) => instance.refreshing) &&
     !state.instances.some((i) => i.snapshot.state === "available");
 
   // App-wide shortcuts: ⌘N new bot · ⌘1–9 jump to bot · ⌘⇧[ / ⌘⇧] prev/next.
@@ -125,11 +194,11 @@ function Shell() {
         }}
       />
       {state.activeView === "team-map" ? (
-        <TeamMapPage />
+        <Deferred><TeamMapPage /></Deferred>
       ) : state.activeView === "routines" ? (
-        <RoutinesPage />
+        <Deferred><RoutinesPage /></Deferred>
       ) : state.activeView === "skill-recorder" ? (
-        <SkillRecorderPage />
+        <Deferred><SkillRecorderPage /></Deferred>
       ) : noEngines ? (
         <NoEngines />
       ) : group ? (
@@ -149,9 +218,9 @@ function Shell() {
           )}
         </main>
       )}
-      {state.settingsOpen && bot && <SettingsPanel bot={bot} />}
-      {state.inspectorOpen && bot && <InspectorPanel bot={bot} />}
-      {state.appSettingsOpen && <SettingsModal />}
+      {state.settingsOpen && bot && <Deferred><SettingsPanel bot={bot} /></Deferred>}
+      {state.inspectorOpen && bot && <Deferred><InspectorPanel bot={bot} /></Deferred>}
+      {state.appSettingsOpen && <Deferred><SettingsModal /></Deferred>}
       {/* mounted after the modals: same z-50 tier, so DOM order keeps the
           palette on top when one of them is open underneath */}
       <CommandPalette />

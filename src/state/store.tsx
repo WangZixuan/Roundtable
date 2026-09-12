@@ -111,6 +111,17 @@ export interface Message {
   queueId?: string;
 }
 
+export interface MessagePreview {
+  id: string;
+  role: Message["role"];
+  kind: Message["kind"];
+  at: number;
+  text?: string;
+  card?: Pick<OptionCardData, "title">;
+  tool?: Pick<NonNullable<Message["tool"]>, "name">;
+  from?: Pick<NonNullable<Message["from"]>, "name">;
+}
+
 export type CoordinationRole = string;
 export type CoordinationRunStatus = "planning" | "validating" | "planning_blocked" | "running" | "paused" | "reviewing" | "completed" | "failed" | "cancelled";
 export type CoordinationTaskStatus = "pending" | "ready" | "running" | "completed" | "failed" | "blocked" | "cancelled";
@@ -229,6 +240,8 @@ export interface Group {
   /** Latest persisted Coordinator run for this channel. */
   coordination?: CoordinationRun;
   messages: Message[];
+  /** Bounded sidebar metadata, independent from transcript hydration. */
+  lastMessage?: MessagePreview;
 }
 
 export interface ModelSelection {
@@ -314,6 +327,8 @@ export interface Bot {
    * allowed for existing bots; imported bots start with this disabled. */
   composio?: boolean;
   messages: Message[];
+  /** Bounded sidebar metadata, independent from transcript hydration. */
+  lastMessage?: MessagePreview;
   /** leaf of the visible conversation branch (see visibleMessages) */
   activeLeafId?: string | null;
 }
@@ -445,6 +460,9 @@ export interface InstanceInfo {
   cliDefault?: string;
   /** Absolute paths of every default binary found on PATH, PATH order. */
   cliCandidates?: string[];
+  /** This catalog is usable while a live provider probe is in progress. */
+  cached?: boolean;
+  refreshing?: boolean;
 }
 
 export type AppSettingsSection =
@@ -458,6 +476,12 @@ export type AppSettingsSection =
 export interface AppState {
   bots: Bot[];
   groups: Group[];
+  messagePages: Record<string, {
+    loading: boolean;
+    loaded: boolean;
+    hasMore: boolean;
+    error?: string;
+  }>;
   instances: InstanceInfo[];
   config: ConfigStatus | null;
   /** selected chat — a bot id OR a group id */
@@ -542,6 +566,9 @@ export type Action =
   | { type: "toggleReaction"; threadId: string; messageId: string; emoji: string }
   | { type: "interruptGroup"; groupId: string }
   | { type: "instances"; instances: InstanceInfo[] }
+  | { type: "messagePageLoading"; threadId: string }
+  | { type: "messagePageMerged"; threadId: string; messages: Message[]; hasMore: boolean }
+  | { type: "messagePageFailed"; threadId: string; error: string }
   | { type: "configStatus"; config: ConfigStatus }
   | { type: "select"; id: string }
   | { type: "send"; botId: string; text: string; replyToId?: string }
@@ -620,6 +647,13 @@ function updateBot(state: AppState, botId: string, fn: (b: Bot) => Bot): AppStat
   return { ...state, bots: state.bots.map((b) => (b.id === botId ? fn(b) : b)) };
 }
 
+function mergeMessages(existing: Message[], incoming: Message[]): Message[] {
+  const byId = new Map(incoming.map((message) => [message.id, message]));
+  // Existing rows may include a newer SSE patch than the REST page snapshot.
+  for (const message of existing) byId.set(message.id, message);
+  return [...byId.values()].sort((a, b) => a.at - b.at);
+}
+
 function withMascotMotion(
   state: AppState,
   botId: string,
@@ -662,7 +696,9 @@ export function reducer(state: AppState, action: Action): AppState {
     case "hydrate": {
       const known = (id: string) => action.bots.some((b) => b.id === id) || action.groups.some((g) => g.id === id);
       const selectedId =
-        state.selectedId && known(state.selectedId) ? state.selectedId : (action.bots[0]?.id ?? "");
+        state.selectedId && known(state.selectedId)
+          ? state.selectedId
+          : (action.bots.find((bot) => !bot.hidden)?.id ?? action.bots[0]?.id ?? action.groups[0]?.id ?? "");
       return {
         ...state,
         bots: action.bots,
@@ -752,6 +788,51 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case "instances":
       return { ...state, instances: action.instances };
+    case "messagePageLoading":
+      return {
+        ...state,
+        messagePages: {
+          ...state.messagePages,
+          [action.threadId]: {
+            ...(state.messagePages[action.threadId] ?? { loaded: false, hasMore: false }),
+            loading: true,
+            error: undefined,
+          },
+        },
+      };
+    case "messagePageMerged": {
+      const bots = state.bots.map((bot) =>
+        bot.threadId === action.threadId
+          ? { ...bot, messages: mergeMessages(bot.messages, action.messages) }
+          : bot,
+      );
+      const groups = state.groups.map((group) =>
+        group.threadId === action.threadId
+          ? { ...group, messages: mergeMessages(group.messages, action.messages) }
+          : group,
+      );
+      return {
+        ...state,
+        bots,
+        groups,
+        messagePages: {
+          ...state.messagePages,
+          [action.threadId]: { loading: false, loaded: true, hasMore: action.hasMore },
+        },
+      };
+    }
+    case "messagePageFailed":
+      return {
+        ...state,
+        messagePages: {
+          ...state.messagePages,
+          [action.threadId]: {
+            ...(state.messagePages[action.threadId] ?? { loaded: false, hasMore: true }),
+            loading: false,
+            error: action.error,
+          },
+        },
+      };
     case "configStatus":
       return {
         ...state,
@@ -857,7 +938,9 @@ export function reducer(state: AppState, action: Action): AppState {
         return {
           ...state,
           groups: state.groups.map((g) =>
-            g.id === group.id ? { ...g, messages: [...g.messages, action.message] } : g,
+            g.id === group.id
+              ? { ...g, messages: [...g.messages, action.message], lastMessage: action.message }
+              : g,
           ),
         };
       }
@@ -878,7 +961,7 @@ export function reducer(state: AppState, action: Action): AppState {
             messages = messages.map((m) => (dropIds.has(m.id) ? { ...m, png: undefined } : m));
           }
         }
-        return { ...b, messages, activeLeafId: action.message.id };
+        return { ...b, messages, lastMessage: action.message, activeLeafId: action.message.id };
       });
       const motion =
         action.message.kind === "options"
@@ -904,7 +987,11 @@ export function reducer(state: AppState, action: Action): AppState {
           ...state,
           groups: state.groups.map((g) =>
             g.id === group.id
-              ? { ...g, messages: g.messages.map((m) => (m.id === action.message.id ? action.message : m)) }
+              ? {
+                  ...g,
+                  messages: g.messages.map((m) => (m.id === action.message.id ? action.message : m)),
+                  lastMessage: g.lastMessage?.id === action.message.id ? action.message : g.lastMessage,
+                }
               : g,
           ),
         };
@@ -921,6 +1008,7 @@ export function reducer(state: AppState, action: Action): AppState {
       return updateBot(next, bot.id, (b) => ({
         ...b,
         messages: b.messages.map((m) => (m.id === action.message.id ? action.message : m)),
+        lastMessage: b.lastMessage?.id === action.message.id ? action.message : b.lastMessage,
       }));
     }
     case "provisioning":
@@ -1076,7 +1164,17 @@ export function reducer(state: AppState, action: Action): AppState {
     case "deleteTask":
       return state;
     case "taskSwitched":
-      return updateBot(state, action.bot.id, (bot) => ({ ...bot, ...action.bot, messages: action.bot.messages ?? [] }));
+      return {
+        ...updateBot(state, action.bot.id, (bot) => ({ ...bot, ...action.bot, messages: action.bot.messages ?? [] })),
+        messagePages: {
+          ...state.messagePages,
+          [action.bot.threadId]: {
+            loading: false,
+            loaded: true,
+            hasMore: state.messagePages[action.bot.threadId]?.hasMore ?? false,
+          },
+        },
+      };
     case "newBot":
     case "duplicateBot":
     case "interrupt":
@@ -1100,6 +1198,7 @@ const MAX_KEPT_SCREEN_FRAMES = 8;
 export const initialState: AppState = {
   bots: [],
   groups: [],
+  messagePages: {},
   instances: [],
   config: null,
   selectedId: "",
@@ -1157,6 +1256,8 @@ const StoreContext = createContext<{
   flushBotPatches: (botId: string) => Promise<void>;
   /** Re-fetch engine availability — after an install, without a restart. */
   refreshInstances: () => Promise<void>;
+  /** Fetch the next bounded page before the oldest locally held message. */
+  loadEarlierMessages: (threadId: string) => Promise<void>;
 } | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
@@ -1169,6 +1270,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [stream, setStream] = useState<StreamState>(EMPTY_STREAM);
   const deltaBuffer = useRef(new Map<string, { text: string; reasoning: string }>());
   const deltaFlush = useRef<number | null>(null);
+  const messagePageRequests = useRef(new Map<string, Promise<void>>());
   const clearStream = (threadId: string) => {
     // Drop the thread's un-flushed deltas too: the settled message that
     // triggered this clear already contains them. Without this, the pending
@@ -1230,6 +1332,42 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }),
     [],
   );
+
+  const loadMessagePage = useCallback(async (
+    threadId: string,
+    options: { before?: string; around?: string } = {},
+  ) => {
+    const cursor = options.around ? `around:${options.around}` : `before:${options.before ?? "latest"}`;
+    const requestKey = `${threadId}:${cursor}`;
+    const existing = messagePageRequests.current.get(requestKey);
+    if (existing) return existing;
+    rawDispatch({ type: "messagePageLoading", threadId });
+    const params = new URLSearchParams({ limit: "10" });
+    if (options.before) params.set("before", options.before);
+    if (options.around) params.set("around", options.around);
+    const request = api(`/api/threads/${threadId}/messages?${params}`)
+      .then(({ messages, hasMore }) => {
+        rawDispatch({
+          type: "messagePageMerged",
+          threadId,
+          messages: Array.isArray(messages) ? messages : [],
+          hasMore: hasMore === true,
+        });
+      })
+      .catch((error) => {
+        rawDispatch({
+          type: "messagePageFailed",
+          threadId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      })
+      .finally(() => {
+        messagePageRequests.current.delete(requestKey);
+      });
+    messagePageRequests.current.set(requestKey, request);
+    return request;
+  }, []);
 
   useEffect(() => {
     // StrictMode's dev probe runs this cleanup once against the same memoized
@@ -1437,6 +1575,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           } else if (group?.unread) {
             api(`/api/groups/${action.id}`, { method: "PATCH", body: JSON.stringify({ unread: false }) }).catch(() => {});
           }
+          const selected = bot ?? group;
+          if (selected && !stateRef.current.messagePages[selected.threadId]?.loaded) {
+            void loadMessagePage(selected.threadId).catch(showError);
+          }
           break;
         }
         case "createGroup":
@@ -1487,16 +1629,34 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "interrupt":
           api(`/api/bots/${action.botId}/interrupt`, { method: "POST" }).catch(showError);
           break;
-        // tasks: the server answers with the bot AND the live transcript,
-        // because switching changes which conversation is on screen
+        // Task changes carry only a bounded tail; older rows stay server-side
+        // until scrollback asks for them.
         case "newTask":
-          api(`/api/bots/${action.botId}/tasks`, { method: "POST", body: "{}" })
-            .then((r: any) => r?.bot && dispatch({ type: "taskSwitched", bot: r.bot }))
+          api(`/api/bots/${action.botId}/tasks?messages=10`, { method: "POST", body: "{}" })
+            .then((r: any) => {
+              if (!r?.bot) return;
+              rawDispatch({ type: "taskSwitched", bot: r.bot });
+              rawDispatch({
+                type: "messagePageMerged",
+                threadId: r.bot.threadId,
+                messages: r.bot.messages ?? [],
+                hasMore: r.hasMore === true,
+              });
+            })
             .catch(showError);
           break;
         case "switchTask":
-          api(`/api/bots/${action.botId}/tasks/${action.threadId}`, { method: "POST" })
-            .then((r: any) => r?.bot && dispatch({ type: "taskSwitched", bot: r.bot }))
+          api(`/api/bots/${action.botId}/tasks/${action.threadId}?messages=10`, { method: "POST" })
+            .then((r: any) => {
+              if (!r?.bot) return;
+              rawDispatch({ type: "taskSwitched", bot: r.bot });
+              rawDispatch({
+                type: "messagePageMerged",
+                threadId: r.bot.threadId,
+                messages: r.bot.messages ?? [],
+                hasMore: r.hasMore === true,
+              });
+            })
             .catch(showError);
           break;
         case "renameTask":
@@ -1506,8 +1666,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           }).catch(showError);
           break;
         case "deleteTask":
-          api(`/api/bots/${action.botId}/tasks/${action.threadId}`, { method: "DELETE" })
-            .then((r: any) => r?.bot && dispatch({ type: "taskSwitched", bot: r.bot }))
+          api(`/api/bots/${action.botId}/tasks/${action.threadId}?messages=10`, { method: "DELETE" })
+            .then((r: any) => {
+              if (!r?.bot) return;
+              rawDispatch({ type: "taskSwitched", bot: r.bot });
+              rawDispatch({
+                type: "messagePageMerged",
+                threadId: r.bot.threadId,
+                messages: r.bot.messages ?? [],
+                hasMore: r.hasMore === true,
+              });
+            })
             .catch(showError);
           break;
         case "interruptGroup":
@@ -1524,20 +1693,51 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     };
     return wrapped;
-  }, [botPatchQueue]);
+  }, [botPatchQueue, loadMessagePage]);
 
   // ── initial load + SSE fold ──────────────────────────────────────────
   useEffect(() => {
     let alive = true;
     const loadAll = () =>
       Promise.all([
-        api("/api/bots")
-          .then(({ bots, groups }) =>
-            alive && rawDispatch({
-              type: "hydrate",
-              bots,
-              groups: groups ?? [],
-            }))
+        api("/api/bots?messages=0")
+          .then(async ({ bots, groups }) => {
+            const safeGroups = groups ?? [];
+            const selected =
+              bots.find((bot: Bot) => bot.id === stateRef.current.selectedId) ??
+              safeGroups.find((group: Group) => group.id === stateRef.current.selectedId) ??
+              bots.find((bot: Bot) => !bot.hidden) ??
+              bots[0] ??
+              safeGroups[0];
+            let selectedHasMore = false;
+            let selectedPageError: string | null = null;
+            if (selected) {
+              try {
+                const page = await api(`/api/threads/${selected.threadId}/messages?limit=10`);
+                selected.messages = Array.isArray(page.messages) ? page.messages : [];
+                selectedHasMore = page.hasMore === true;
+              } catch (error) {
+                selectedPageError = error instanceof Error ? error.message : String(error);
+              }
+            }
+            if (alive) {
+              rawDispatch({ type: "hydrate", bots, groups: safeGroups });
+              if (selected && !selectedPageError) {
+                rawDispatch({
+                  type: "messagePageMerged",
+                  threadId: selected.threadId,
+                  messages: selected.messages,
+                  hasMore: selectedHasMore,
+                });
+              } else if (selected && selectedPageError) {
+                rawDispatch({
+                  type: "messagePageFailed",
+                  threadId: selected.threadId,
+                  error: selectedPageError,
+                });
+              }
+            }
+          })
           .catch(() => {}),
         api("/api/instances")
           .then(({ instances }) => alive && rawDispatch({ type: "instances", instances }))
@@ -1628,7 +1828,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           clearStream(frame.threadId);
           break;
         case "bot": {
-          const bot = frame.bot as BotAnnouncement;
+          const announced: BotAnnouncement & { hasMore?: boolean } = frame.bot;
+          const { hasMore, ...bot } = announced;
           // reading the selected chat clears its badge immediately
           if (bot.unread && bot.id === stateRef.current.selectedId) {
             bot.unread = false;
@@ -1642,6 +1843,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             type: "botPatched",
             bot: { ...bot, ...botPatchQueue.overlayFor(bot.id) },
           });
+          if (Array.isArray(bot.messages)) {
+            rawDispatch({
+              type: "messagePageMerged",
+              threadId: bot.threadId,
+              messages: bot.messages,
+              hasMore: hasMore === true,
+            });
+          }
           break;
         }
         case "group": {
@@ -1742,6 +1951,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             .then(({ instances }) => rawDispatch({ type: "instances", instances }))
             .catch(() => {});
           break;
+        case "instances":
+          rawDispatch({ type: "instances", instances: frame.instances ?? [] });
+          break;
       }
     };
     const unsubscribe = subscribeOrchestrationEvents((frame) => {
@@ -1760,12 +1972,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // as "Check again" so the user isn't told to restart when a refresh will do.
   const refreshInstances = useCallback(async () => {
     try {
-      const { instances } = await api("/api/instances");
+      const { instances } = await api("/api/instances?refresh=1");
       rawDispatch({ type: "instances", instances });
     } catch {
       /* offline or server down — the existing list stays */
     }
   }, []);
+
+  const loadEarlierMessages = useCallback(async (threadId: string) => {
+    const owner =
+      stateRef.current.bots.find((bot) => bot.threadId === threadId) ??
+      stateRef.current.groups.find((group) => group.threadId === threadId);
+    const page = stateRef.current.messagePages[threadId];
+    if (!owner || page?.loading || page?.hasMore === false) return;
+    await loadMessagePage(threadId, { before: owner.messages[0]?.id });
+  }, [loadMessagePage]);
 
   // Installing a CLI or signing one in happens in a terminal, outside this
   // window — so the moment the user comes back is exactly when our engine
@@ -1788,8 +2009,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [botPatchQueue],
   );
   const value = useMemo(
-    () => ({ state, dispatch, flushBotPatches, refreshInstances }),
-    [state, dispatch, flushBotPatches, refreshInstances],
+    () => ({ state, dispatch, flushBotPatches, refreshInstances, loadEarlierMessages }),
+    [state, dispatch, flushBotPatches, refreshInstances, loadEarlierMessages],
   );
   return (
     <StoreContext.Provider value={value}>

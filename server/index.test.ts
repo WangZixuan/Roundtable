@@ -2134,6 +2134,15 @@ describe("message pages", () => {
     );
     // and every 1:1 thread is capped by the same parameter
     expect(body.bots.every((b: { messages: unknown[] }) => b.messages.length <= 2)).toBe(true);
+
+    const metadata = await api("GET", "/api/bots?messages=0");
+    const preview = metadata.body.groups.find((g: { id: string }) => g.id === full.id);
+    expect(preview.messages).toEqual([]);
+    expect(preview.lastMessage).toMatchObject({
+      id: full.messages.at(-1).id,
+      at: full.messages.at(-1).at,
+    });
+    expect(preview.lastMessage).not.toHaveProperty("png");
   });
 
   it("pages backwards from a message the client already holds", async () => {

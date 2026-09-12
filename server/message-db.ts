@@ -74,6 +74,69 @@ export interface ThreadRows {
   activeLeafId: string | null;
 }
 
+export function readMessagePage(
+  threadId: string,
+  limit: number,
+  before?: string | null,
+): { messages: Message[]; hasMore: boolean } {
+  if (limit === 0) {
+    const row = db()
+      .prepare("SELECT 1 AS present FROM messages WHERE thread_id = ? LIMIT 1")
+      .get(threadId) as { present: number } | undefined;
+    return { messages: [], hasMore: Boolean(row) };
+  }
+  const cursor = before
+    ? db()
+        .prepare("SELECT rowid FROM messages WHERE thread_id = ? AND id = ?")
+        .get(threadId, before) as { rowid: number } | undefined
+    : undefined;
+  const rows = (cursor
+    ? db()
+        .prepare("SELECT json FROM messages WHERE thread_id = ? AND rowid < ? ORDER BY rowid DESC LIMIT ?")
+        .all(threadId, cursor.rowid, limit + 1)
+    : db()
+        .prepare("SELECT json FROM messages WHERE thread_id = ? ORDER BY rowid DESC LIMIT ?")
+        .all(threadId, limit + 1)) as Array<{ json: string }>;
+  const hasMore = rows.length > limit;
+  return {
+    messages: rows.slice(0, limit).reverse().map(rowToMessage),
+    hasMore,
+  };
+}
+
+export function hasMessage(threadId: string, messageId: string): boolean {
+  return Boolean(
+    db()
+      .prepare("SELECT 1 AS present FROM messages WHERE thread_id = ? AND id = ?")
+      .get(threadId, messageId),
+  );
+}
+
+export function latestMessage(threadId: string): Message | undefined {
+  const row = db()
+    .prepare("SELECT json FROM messages WHERE thread_id = ? ORDER BY rowid DESC LIMIT 1")
+    .get(threadId) as { json: string } | undefined;
+  return row ? rowToMessage(row) : undefined;
+}
+
+export function activeLeafMessage(threadId: string): Message | undefined {
+  const row = db()
+    .prepare(
+      "SELECT messages.json FROM thread_state " +
+        "JOIN messages ON messages.thread_id = thread_state.thread_id AND messages.id = thread_state.active_leaf_id " +
+        "WHERE thread_state.thread_id = ?",
+    )
+    .get(threadId) as { json: string } | undefined;
+  return row ? rowToMessage(row) : undefined;
+}
+
+export function activeLeafId(threadId: string): string | null {
+  const row = db()
+    .prepare("SELECT active_leaf_id FROM thread_state WHERE thread_id = ?")
+    .get(threadId) as { active_leaf_id: string | null } | undefined;
+  return row?.active_leaf_id ?? null;
+}
+
 /** Read one thread, importing its legacy JSON file on first touch. */
 export function readThread(threadId: string, legacyFile: string): ThreadRows {
   const rows = db()

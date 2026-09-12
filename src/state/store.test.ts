@@ -194,6 +194,61 @@ describe("cross-client bot creation", () => {
   });
 });
 
+describe("message pagination", () => {
+  const bot = {
+    id: "paged",
+    threadId: "paged-thread",
+    name: "Paged",
+    title: "",
+    description: "",
+    notifications: false,
+    color: "green",
+    unread: false,
+    modelSelection: { instanceId: "fake", model: "fake-1" },
+    messages: [
+      { id: "m3", role: "bot", kind: "text", text: "three", at: 3 },
+      { id: "m4", role: "user", kind: "text", text: "four", at: 4 },
+    ],
+  } satisfies Bot;
+
+  it("prepends older pages in order and removes overlap", () => {
+    const state = { ...initialState, bots: [bot] };
+    const next = reducer(state, {
+      type: "messagePageMerged",
+      threadId: bot.threadId,
+      messages: [
+        { id: "m1", role: "user", kind: "text", text: "one", at: 1 },
+        { id: "m2", role: "bot", kind: "text", text: "two", at: 2 },
+        bot.messages[0]!,
+      ],
+      hasMore: false,
+    });
+
+    expect(next.bots[0]?.messages.map((message) => message.id)).toEqual(["m1", "m2", "m3", "m4"]);
+    expect(next.messagePages[bot.threadId]).toEqual({ loading: false, loaded: true, hasMore: false });
+  });
+
+  it("merges realtime messages that arrived before the requested page", () => {
+    const state = reducer(
+      { ...initialState, bots: [bot] },
+      {
+        type: "messageAdded",
+        threadId: bot.threadId,
+        message: { id: "m5", role: "bot", kind: "text", text: "five", at: 5 },
+      },
+    );
+    const next = reducer(state, {
+      type: "messagePageMerged",
+      threadId: bot.threadId,
+      messages: [bot.messages[0]!, bot.messages[1]!],
+      hasMore: true,
+    });
+
+    expect(next.bots[0]?.messages.map((message) => message.id)).toEqual(["m3", "m4", "m5"]);
+    expect(next.bots[0]?.lastMessage).toMatchObject({ id: "m5", text: "five" });
+  });
+});
+
 describe("pending queued chip", () => {
   const bot = {
     id: "b1",

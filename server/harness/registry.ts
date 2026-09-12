@@ -4,11 +4,17 @@
 // startup failure (that behavior is what makes settings forward/backward
 // compatible — do not remove it); dispose tears an instance down without
 // touching its siblings.
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { writeFileAtomic } from "../atomic.ts";
 import { findCliCandidates } from "../env-path.ts";
 import type {
   AnyProviderDriver,
+  EffortLevel,
+  EngineInstall,
   InstanceConfigMap,
   InstanceId,
+  ModelCatalog,
   ProviderInstance,
   ProviderSnapshot,
 } from "../contracts.ts";
@@ -26,6 +32,50 @@ export interface ShadowInstance {
 export type RegistryEntry =
   | { instanceId: InstanceId; live: ProviderInstance; shadow?: undefined }
   | { instanceId: InstanceId; live?: undefined; shadow: ShadowInstance };
+
+export interface ProviderDescription {
+  instanceId: InstanceId;
+  driverKind: string;
+  displayName: string;
+  snapshot: ProviderSnapshot;
+  models: ModelCatalog;
+  capabilities: {
+    computerMcp: boolean;
+    agentsMcp: boolean;
+    composioMcp?: boolean;
+    images?: boolean;
+    effortLevels?: readonly EffortLevel[];
+    queueing?: boolean;
+  };
+  access: "subscription" | "custom";
+  install?: EngineInstall;
+  cli?: string;
+  cliDefault?: string;
+  cliCandidates: string[];
+  cached?: boolean;
+  refreshing?: boolean;
+}
+
+interface CatalogFile {
+  version: 1;
+  configHash: string;
+  descriptions: ProviderDescription[];
+}
+
+function configHash(configs: InstanceConfigMap): string {
+  return createHash("sha256").update(JSON.stringify(configs)).digest("hex");
+}
+
+function readCatalog(path: string | undefined, expectedHash: string): ProviderDescription[] | null {
+  if (!path) return null;
+  try {
+    const parsed: Partial<CatalogFile> = JSON.parse(readFileSync(path, "utf8"));
+    if (parsed.version !== 1 || parsed.configHash !== expectedHash || !Array.isArray(parsed.descriptions)) return null;
+    return parsed.descriptions;
+  } catch {
+    return null;
+  }
+}
 
 /** The `cli` field off a driver's default config, when it has one — the
  * placeholder an override input shows when nothing is set. */
@@ -52,12 +102,21 @@ export class ProviderRegistry {
    * from their own config; this map only reports what was configured */
   private cliByInstance = new Map<InstanceId, string>();
   private driversByKind: Map<string, AnyProviderDriver>;
+  private readonly catalogFile: string | undefined;
+  private currentConfigHash = "";
+  private catalog: ProviderDescription[] | null = null;
+  private refreshInFlight: Promise<ProviderDescription[]> | null = null;
+  private generation = 0;
 
-  constructor(drivers: readonly AnyProviderDriver[]) {
+  constructor(drivers: readonly AnyProviderDriver[], options: { catalogFile?: string } = {}) {
     this.driversByKind = new Map(drivers.map((d) => [d.driverKind, d]));
+    this.catalogFile = options.catalogFile;
   }
 
   async load(configs: InstanceConfigMap) {
+    this.generation += 1;
+    this.currentConfigHash = configHash(configs);
+    this.catalog = readCatalog(this.catalogFile, this.currentConfigHash);
     for (const [instanceId, entry] of Object.entries(configs)) {
       const driver = this.driversByKind.get(entry.driver);
       if (!driver) {
@@ -117,8 +176,68 @@ export class ProviderRegistry {
     return [...this.byId.values()].flatMap((e) => (e.live ? [e.live] : []));
   }
 
-  /** instance snapshots for the model picker: id, driver, models, health */
-  async describe() {
+  /** Immediate startup shape. Cached health is explicitly stale; a first
+   * install receives checking rows rather than a fabricated available state. */
+  describeCached(): ProviderDescription[] {
+    if (this.catalog) {
+      return this.catalog.map((description) => ({
+        ...description,
+        cached: true,
+        refreshing: true,
+      }));
+    }
+    return this.entries().map((entry) => {
+      const driver = this.driversByKind.get(entry.shadow?.driverKind ?? entry.live!.driverKind);
+      const instance = entry.live;
+      return {
+        instanceId: entry.instanceId,
+        driverKind: entry.shadow?.driverKind ?? instance!.driverKind,
+        displayName:
+          entry.shadow?.displayName ??
+          instance?.displayName ??
+          entry.shadow?.driverKind ??
+          instance!.driverKind,
+        snapshot: {
+          state: "unavailable",
+          reason: entry.shadow?.reason ?? "Checking provider availability…",
+        },
+        models: entry.shadow ? { default: "", options: [] } : instance!.models,
+        capabilities: {
+          computerMcp: instance?.adapter.capabilities.computerMcp === true,
+          agentsMcp: instance?.adapter.capabilities.agentsMcp === true,
+          composioMcp: instance?.adapter.capabilities.composioMcp === true,
+          images: instance?.adapter.capabilities.images === true,
+          effortLevels: instance?.adapter.capabilities.effortLevels,
+          queueing: instance?.adapter.capabilities.queueing === true,
+        },
+        access: driver?.metadata.access ?? "subscription",
+        install: driver?.install,
+        cli: entry.shadow?.cli ?? (instance ? this.cliByInstance.get(instance.instanceId) : undefined),
+        cliDefault: cliDefaultOf(driver),
+        cliCandidates: [],
+        refreshing: true,
+      };
+    });
+  }
+
+  /** Backward-compatible live description for callers that require a probe. */
+  async describe(): Promise<ProviderDescription[]> {
+    return this.refresh();
+  }
+
+  /** Startup, picker reads and manual checks share one provider probe. */
+  refresh(): Promise<ProviderDescription[]> {
+    if (this.refreshInFlight) return this.refreshInFlight;
+    const generation = this.generation;
+    const request = this.probe(generation);
+    const tracked = request.finally(() => {
+      if (this.refreshInFlight === tracked) this.refreshInFlight = null;
+    });
+    this.refreshInFlight = tracked;
+    return this.refreshInFlight;
+  }
+
+  private async probe(generation: number): Promise<ProviderDescription[]> {
     // Multiple instances may share a driver. Scan each default binary once
     // per response instead of repeating filesystem work for every row.
     const candidatesByName = new Map<string, string[]>();
@@ -131,7 +250,7 @@ export class ProviderRegistry {
       candidatesByName.set(name, found);
       return found;
     };
-    return Promise.all(
+    const descriptions = await Promise.all(
       this.entries().map(async (entry) => {
         const driver = this.driversByKind.get(entry.shadow?.driverKind ?? entry.live!.driverKind);
         if (entry.shadow) {
@@ -150,7 +269,7 @@ export class ProviderRegistry {
             // a shadow is exactly the "your CLI is broken, pick another"
             // case where the detected-path dropdown matters most
             cliCandidates: candidatesFor(driver),
-          };
+          } satisfies ProviderDescription;
         }
         const inst = entry.live;
         let snapshot: ProviderSnapshot;
@@ -160,12 +279,16 @@ export class ProviderRegistry {
         } catch (e) {
           snapshot = { state: "unavailable", reason: e instanceof Error ? e.message : String(e) };
         }
+        const cached = this.catalog?.find((description) => description.instanceId === inst.instanceId);
         return {
           instanceId: inst.instanceId,
           driverKind: inst.driverKind,
           displayName: inst.displayName ?? inst.driverKind,
           snapshot,
-          models: inst.models,
+          models:
+            snapshot.state === "unavailable" && cached?.models.options.length
+              ? cached.models
+              : inst.models,
           capabilities: {
             computerMcp: inst.adapter.capabilities.computerMcp === true,
             agentsMcp: inst.adapter.capabilities.agentsMcp === true,
@@ -182,14 +305,34 @@ export class ProviderRegistry {
           // the dropdown's "detected" entries. Snapshotted per describe() so a
           // newly installed CLI shows up on the next refresh.
           cliCandidates: candidatesFor(driver),
-        };
+        } satisfies ProviderDescription;
       }),
     );
+    if (generation !== this.generation) return this.describeCached();
+    this.catalog = descriptions;
+    if (this.catalogFile) {
+      try {
+        writeFileAtomic(
+          this.catalogFile,
+          `${JSON.stringify({
+            version: 1,
+            configHash: this.currentConfigHash,
+            descriptions,
+          } satisfies CatalogFile, null, 2)}\n`,
+          { mode: 0o600 },
+        );
+      } catch (error) {
+        console.warn("Could not persist provider catalog:", error);
+      }
+    }
+    return descriptions;
   }
 
   async disposeAll() {
+    this.generation += 1;
     await Promise.allSettled(this.instances().map((i) => i.dispose()));
     this.byId.clear();
     this.cliByInstance.clear();
+    this.refreshInFlight = null;
   }
 }

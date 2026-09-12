@@ -144,7 +144,7 @@ function preview(bot: Bot): string {
   if (bot.busy) return "Working…";
   // the visible branch's tail — bot.messages holds every fork, so its last
   // entry can belong to a version the user switched away from
-  const last = visibleMessages(bot).at(-1);
+  const last = visibleMessages(bot).at(-1) ?? bot.lastMessage;
   if (!last) return "";
   const text = last.kind === "options" && last.card
     ? last.card.title
@@ -167,7 +167,7 @@ function groupPreview(group: Group, bots: Bot[]): string {
   if (group.busyBotId) {
     return `${bots.find((b) => b.id === group.busyBotId)?.name ?? "A bot"} is working…`;
   }
-  const last = group.messages.at(-1);
+  const last = group.messages.at(-1) ?? group.lastMessage;
   if (!last) return "No messages yet";
   const text = last.kind === "activity" && last.tool ? last.tool.name : (last.text ?? "");
   if (last.role === "user") return `You: ${text}`;
@@ -176,7 +176,7 @@ function groupPreview(group: Group, bots: Bot[]): string {
 
 function hasUsefulGroupPreview(group: Group): boolean {
   if (group.busyBotId) return true;
-  const last = group.messages.at(-1);
+  const last = group.messages.at(-1) ?? group.lastMessage;
   if (!last) return false;
   if (last.kind === "activity" && last.tool?.name.trim()) return true;
   return Boolean(last.text?.trim());
@@ -242,7 +242,7 @@ function GroupListItem({
   const members = group.memberIds
     .map((id) => state.bots.find((b) => b.id === id))
     .filter((b): b is Bot => Boolean(b));
-  const last = group.messages.at(-1);
+  const last = group.messages.at(-1) ?? group.lastMessage;
   const comfortable = density === "comfortable";
   const usefulPreview = hasUsefulGroupPreview(group);
   const secondary = usefulPreview ? groupPreview(group, state.bots) : memberCountLabel(members.length);
@@ -263,8 +263,12 @@ function GroupListItem({
         onMenu({ groupId: group.id, x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
       }}
       className={cn(
-        "relative flex w-full items-center rounded-lg border border-transparent text-left",
-        density === "icons" ? "justify-center px-1 py-1.5" : density === "compact" ? "gap-2 px-2 py-2" : "gap-2.5 px-2.5 py-1.5",
+        "relative flex w-full shrink-0 items-center rounded-lg border border-transparent text-left",
+        density === "icons"
+          ? "h-[52px] justify-center px-1"
+          : density === "compact"
+            ? "h-12 gap-2 px-2"
+            : "h-14 gap-2.5 px-2.5",
         conversationSelectionClass(selected),
       )}
       title={density === "icons" ? group.name : undefined}
@@ -763,14 +767,14 @@ function BotListItem({
   const avatarSize = iconOnly ? 44 : density === "compact" ? 32 : STANDARD_BOT_AVATAR_SIZE;
   // the visible branch, so a version switch changes the row with the chat
   const visible = visibleMessages(bot);
-  const last = visible.at(-1);
+  const last = visible.at(-1) ?? bot.lastMessage;
   const rowClass = cn(
-    "relative flex w-full items-center rounded-lg border text-left",
+    "relative flex w-full shrink-0 items-center rounded-lg border text-left",
     iconOnly
-      ? "justify-center px-1 py-1.5"
+      ? "h-[52px] justify-center px-1"
       : density === "compact"
-        ? "gap-2 px-2 py-2"
-        : "gap-2.5 px-2.5 py-1.5",
+        ? "h-12 gap-2 px-2"
+        : "h-14 gap-2.5 px-2.5",
     selected
       ? cn("border-transparent", conversationSelectionClass(true))
       : cn("border-transparent", conversationSelectionClass(false)),

@@ -21,8 +21,16 @@ export async function landOnSearchHit(
 
   dispatch({ type: "select", id: ownerId });
   if (bot && bot.threadId !== hit.threadId) {
-    const result = await api(`/api/bots/${bot.id}/tasks/${hit.threadId}`, { method: "POST" });
-    if (result?.bot) dispatch({ type: "taskSwitched", bot: result.bot });
+    const result = await api(`/api/bots/${bot.id}/tasks/${hit.threadId}?messages=10`, { method: "POST" });
+    if (result?.bot) {
+      dispatch({ type: "taskSwitched", bot: result.bot });
+      dispatch({
+        type: "messagePageMerged",
+        threadId: hit.threadId,
+        messages: result.bot.messages ?? [],
+        hasMore: result.hasMore === true,
+      });
+    }
   }
   if (bot && !hit.onActivePath) {
     const branch = await api(`/api/bots/${bot.id}/active-branch`, {
@@ -32,6 +40,21 @@ export async function landOnSearchHit(
     if (branch?.activeLeafId) {
       dispatch({ type: "threadActive", threadId: hit.threadId, activeLeafId: branch.activeLeafId });
     }
+  }
+  const current =
+    state.bots.find((candidate) => candidate.threadId === hit.threadId)?.messages ??
+    state.groups.find((candidate) => candidate.threadId === hit.threadId)?.messages ??
+    [];
+  if (!current.some((message) => message.id === hit.messageId)) {
+    const page = await api(
+      `/api/threads/${hit.threadId}/messages?limit=120&around=${encodeURIComponent(hit.messageId)}`,
+    );
+    dispatch({
+      type: "messagePageMerged",
+      threadId: hit.threadId,
+      messages: page.messages ?? [],
+      hasMore: page.hasMore === true,
+    });
   }
   dispatch({ type: "focusMessage", threadId: hit.threadId, messageId: hit.messageId });
 }

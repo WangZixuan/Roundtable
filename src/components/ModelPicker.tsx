@@ -20,6 +20,7 @@ function modelLabel(instance: InstanceInfo | undefined, model: string): string {
 }
 
 function engineStatus(instance: InstanceInfo): string {
+  if (instance.refreshing) return "Refreshing…";
   if (needsCli(instance)) return "Not installed";
   if (needsSignIn(instance)) return "Sign-in required";
   return instance.snapshot.version ?? "Ready";

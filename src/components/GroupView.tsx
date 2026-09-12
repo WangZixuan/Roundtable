@@ -534,7 +534,7 @@ function RoomSetup({ group }: { group: Group }) {
   );
 }
 export function GroupView({ group }: { group: Group }) {
-  const { state, dispatch } = useStore();
+  const { state, dispatch, loadEarlierMessages } = useStore();
   const stream = useStreaming();
   const streaming = stream.streaming[group.threadId];
   const channelStreams = Object.entries(group.memberSessions ?? {}).flatMap(([botId, threadId]) => {
@@ -640,13 +640,23 @@ export function GroupView({ group }: { group: Group }) {
   // shift scrollTop by the growth so the message under the cursor stays put
   // (browser scroll anchoring is disabled on this container).
   const preExpandHeight = useRef<number | null>(null);
-  const showEarlier = () => {
+  const pageState = state.messagePages[group.threadId];
+  const showEarlier = async () => {
     preExpandHeight.current = scrollRef.current?.scrollHeight ?? null;
     // expanding means reading scrollback — never let a mid-expand stream
     // event pin the viewport back to the bottom
     setBottomFollow(false);
-    const start = expandWindowStart(startIndex);
-    setTranscriptWindow((w) => ({ ...w, start }));
+    if (hiddenCount > 0) {
+      const start = expandWindowStart(startIndex);
+      setTranscriptWindow((w) => ({ ...w, start }));
+    } else {
+      try {
+        await loadEarlierMessages(group.threadId);
+        setTranscriptWindow((window) => ({ ...window, start: 0 }));
+      } catch {
+        preExpandHeight.current = null;
+      }
+    }
   };
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -656,7 +666,7 @@ export function GroupView({ group }: { group: Group }) {
     // keep the resume-follow heuristic from reading the restore as a
     // downward user scroll
     previousScrollTop.current = el.scrollTop;
-  }, [transcriptWindow.start]);
+  }, [group.messages.length, transcriptWindow.start]);
 
   const showLater = () => {
     setBottomFollow(false);
@@ -860,6 +870,7 @@ export function GroupView({ group }: { group: Group }) {
           const el = scrollRef.current;
           if (!el) return;
           const scrollTop = el.scrollTop;
+          if (scrollTop < 80 && pageState?.hasMore && !pageState.loading) void showEarlier();
           const resume = shouldResumeBottomFollow({
             following: followRef.current,
             previousScrollTop: previousScrollTop.current,
@@ -902,13 +913,14 @@ export function GroupView({ group }: { group: Group }) {
               </div>
             </div>
           )}
-          {hiddenCount > 0 && (
+          {(hiddenCount > 0 || pageState?.hasMore) && (
             <div className="flex justify-center pt-2">
               <button
-                onClick={showEarlier}
+                onClick={() => void showEarlier()}
+                disabled={pageState?.loading}
                 className="rounded-full border border-hairline/40 bg-panel px-3 py-1 text-[12.5px] text-ink-secondary hover:bg-raised hover:text-ink"
               >
-                Show earlier messages ({hiddenCount} more)
+                {pageState?.loading ? "Loading earlier messages…" : "Show earlier messages"}
               </button>
             </div>
           )}
