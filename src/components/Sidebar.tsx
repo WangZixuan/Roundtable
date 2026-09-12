@@ -1248,20 +1248,30 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
         open ? "max-md:translate-x-0" : "max-md:-translate-x-full",
       )}
     >
-      {/* The blank title-bar strip moves the desktop window; controls remain clickable. */}
+      {/* The title-bar strip moves the desktop window; controls remain clickable. */}
       <div
         className={cn("flex items-center pt-3.5 pb-1", density === "icons" ? "flex-col gap-1 px-2" : "justify-between px-4")}
         style={windowDragStyle}
       >
-        {macInset ? (
-          <div className={density === "icons" ? "h-5 w-full" : "w-14"} />
-        ) : browser ? (
-          <div className="flex items-center gap-2">
-            <span className="size-3 rounded-full bg-[#ff5f57]" />
-            <span className="size-3 rounded-full bg-[#febc2e]" />
-            <span className="size-3 rounded-full bg-[#28c840]" />
-          </div>
-        ) : <div />}
+        <div className={cn("flex min-w-0 items-center gap-2", density === "icons" && "w-full flex-col")}>
+          {macInset ? (
+            <div className={density === "icons" ? "h-5 w-full" : "w-14"} />
+          ) : browser ? (
+            <div className="flex items-center gap-2">
+              <span className="size-3 rounded-full bg-[#ff5f57]" />
+              <span className="size-3 rounded-full bg-[#febc2e]" />
+              <span className="size-3 rounded-full bg-[#28c840]" />
+            </div>
+          ) : null}
+          <span
+            className={cn(
+              "select-none truncate text-sm font-semibold text-ink",
+              density === "icons" && "w-full text-center text-[10px] leading-tight",
+            )}
+          >
+            Roundtable
+          </span>
+        </div>
         <div
           className={cn("relative flex items-center", density === "icons" ? "flex-col gap-1" : "gap-1")}
           style={windowNoDragStyle}
