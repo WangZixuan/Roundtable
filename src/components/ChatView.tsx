@@ -9,13 +9,11 @@ import {
   ChevronRight,
   Bug,
   Clock,
-  Copy,
   Folder,
   ListTree,
   Loader2,
   MessageSquareReply,
   MoreHorizontal,
-  Pencil,
   Pin,
   PinOff,
   RefreshCw,
@@ -46,6 +44,7 @@ import { OptionCard, shouldHideOnboardingCard } from "./OptionCard";
 import { ApprovalCard } from "./ApprovalCard";
 import { Composer } from "./Composer";
 import { ChatFindBar } from "./ChatFindBar";
+import { CopyButton } from "./CopyButton";
 import { ReplyQuote } from "./ReplyQuote";
 import { ConnectorCard } from "./ConnectorCard";
 import { SecretRequestCard } from "./SecretRequestCard";
@@ -53,7 +52,6 @@ import { AttachedImageGallery } from "./AttachmentPreview";
 import { ModelPicker } from "./ModelPicker";
 import { RenameTitle } from "./RenameTitle";
 import { TaskPicker } from "./TaskPicker";
-import { SpeakButton } from "./SpeakButton";
 import { CallOverlay } from "./CallView";
 import { BotDelivery } from "./BotDelivery";
 import { cn } from "@/lib/cn";
@@ -270,28 +268,6 @@ function TaskTimeline({ messages, busy, activity }: { messages: Message[]; busy:
   );
 }
 
-/** Hover/focus-revealed copy control shared by user + bot bubbles. */
-function CopyButton({ text, className }: { text: string; className?: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      onClick={() => {
-        void navigator.clipboard?.writeText(text);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1200);
-      }}
-      aria-label="Copy message"
-      title="Copy message"
-      className={cn(
-        "rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100",
-        className,
-      )}
-    >
-      {copied ? <Check size={14} className="text-success" /> : <Copy size={14} />}
-    </button>
-  );
-}
-
 /** Live extended thinking: shimmer label + collapsible reasoning text.
  * Ephemeral — rendered only while the turn runs, dropped when it settles. */
 function ThinkingStrip({ text, active }: { text: string; active: boolean }) {
@@ -456,7 +432,6 @@ function Bubble({
   message,
   editing,
   isLastBotText,
-  onStartEdit,
   onCancelEdit,
   onSubmitEdit,
   onRegenerate,
@@ -467,7 +442,6 @@ function Bubble({
   message: Message;
   editing: boolean;
   isLastBotText: boolean;
-  onStartEdit: () => void;
   onCancelEdit: () => void;
   onSubmitEdit: (text: string) => void;
   onRegenerate?: () => void;
@@ -502,28 +476,18 @@ function Bubble({
   return (
     <div className={cn("group animate-msg-in flex w-full flex-col", user ? "items-end" : "items-start")}>
       <div className={cn("flex w-full items-center gap-1.5", user ? "justify-end" : "flex-wrap justify-start")}>
-        {/* editing rewinds the thread, so it waits for the turn to end —
-            same rule as the version switcher below */}
-        {user && message.kind === "text" && !webhookView && !bot.busy && (
+        {user && <CopyButton text={visibleText} />}
+        {!user && (
           <button
-            onClick={onStartEdit}
-            aria-label="Edit message"
+            type="button"
+            onClick={onReply}
+            aria-label="Reply to message"
             className="rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
-            title="Edit message"
+            title="Reply"
           >
-            <Pencil size={14} />
+            <MessageSquareReply size={14} />
           </button>
         )}
-        {user && <CopyButton text={visibleText} />}
-        <button
-          type="button"
-          onClick={onReply}
-          aria-label="Reply to message"
-          className="rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
-          title="Reply"
-        >
-          <MessageSquareReply size={14} />
-        </button>
         <button
           onClick={() =>
             dispatch({
@@ -616,11 +580,8 @@ function Bubble({
           )}
         </div>
         {!user && (
-          <div className="flex flex-col gap-0.5 self-end pb-0.5">
+          <div className="flex items-center gap-0.5 self-end pb-0.5">
             <CopyButton text={text} />
-            {message.kind === "text" && (
-              <SpeakButton text={text} botId={bot.id} messageId={message.id} voiceId={bot.voice} />
-            )}
             {isLastBotText && !bot.busy && onRegenerate && (
               <button
                 onClick={onRegenerate}
@@ -777,7 +738,6 @@ const MessagesList = memo(function MessagesList({
   lastBotTextId,
   canRetryLast,
   engine,
-  onStartEdit,
   onCancelEdit,
   onSubmitEdit,
   onRegenerate,
@@ -792,7 +752,6 @@ const MessagesList = memo(function MessagesList({
   canRetryLast: boolean;
   /** This bot's engine, for rendering setup help on a `setup` error. */
   engine: InstanceInfo | undefined;
-  onStartEdit: (id: string) => void;
   onCancelEdit: () => void;
   onSubmitEdit: (id: string, text: string) => void;
   onRegenerate: () => void;
@@ -852,7 +811,6 @@ const MessagesList = memo(function MessagesList({
                   message={m}
                   editing={editingId === m.id}
                   isLastBotText={m.id === lastBotTextId}
-                  onStartEdit={() => onStartEdit(m.id)}
                   onCancelEdit={onCancelEdit}
                   onSubmitEdit={(text) => onSubmitEdit(m.id, text)}
                   onRegenerate={onRegenerate}
@@ -1006,7 +964,6 @@ export function ChatView({ bot }: { bot: Bot }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   useEffect(() => setEditingId(null), [bot.id]);
   // stable handler identities — MessagesList is memo'd on them
-  const startEdit = useCallback((id: string) => setEditingId(id), []);
   const cancelEdit = useCallback(() => setEditingId(null), []);
   const submitEdit = useCallback(
     (messageId: string, text: string) => {
@@ -1349,7 +1306,6 @@ export function ChatView({ bot }: { bot: Bot }) {
             lastBotTextId={lastBotTextId}
             canRetryLast={!bot.busy && Boolean(lastUserMessage)}
             engine={state.instances.find((i) => i.instanceId === bot.modelSelection.instanceId)}
-            onStartEdit={startEdit}
             onCancelEdit={cancelEdit}
             onSubmitEdit={submitEdit}
             onRegenerate={regenerate}

@@ -18,6 +18,7 @@ import { normalizeState } from "@/lib/mascot";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { Composer } from "./Composer";
 import { ChatFindBar } from "./ChatFindBar";
+import { CopyButton } from "./CopyButton";
 import { ReplyQuote } from "./ReplyQuote";
 import { ConnectorCard } from "./ConnectorCard";
 import { SecretRequestCard } from "./SecretRequestCard";
@@ -174,15 +175,18 @@ const Transcript = memo(function Transcript({
           ) : m.kind === "text" && m.text ? (
             <div className={cn("group flex w-full flex-col", user ? "items-end" : "items-start")}>
               <div className={cn("flex w-full items-end gap-1.5", user ? "justify-end" : "flex-wrap justify-start")}>
-                <button
-                  type="button"
-                  onClick={() => onReply(m)}
-                  aria-label="Reply to message"
-                  title="Reply"
-                  className="rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
-                >
-                  <MessageSquareReply size={14} />
-                </button>
+                <CopyButton text={attachedImages?.display ?? m.text} />
+                {!user && (
+                  <button
+                    type="button"
+                    onClick={() => onReply(m)}
+                    aria-label="Reply to message"
+                    title="Reply"
+                    className="rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+                  >
+                    <MessageSquareReply size={14} />
+                  </button>
+                )}
                 <PinToggle group={group} message={m} />
                 <div
                   className={cn(
