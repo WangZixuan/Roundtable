@@ -115,8 +115,6 @@ export interface Message {
   replyToId?: string;
   /** group threads: which member said this (sender attribution). */
   from?: { botId: string; name: string; color: string };
-  /** emoji reactions; by = "user" or a member botId. */
-  reactions?: Array<{ emoji: string; by: string }>;
   /** comm chips: "Messaged @X" in the caller's chat, linking to the
    * bot⇄bot channel where the exchange is mirrored. */
   comm?: { groupId: string; withBotId: string; withName: string; withColor: string };
@@ -712,16 +710,6 @@ export class Store {
     this.deleteThreadRecord(group.threadId);
     this.emit({ type: "group.deleted", groupId: id });
     return true;
-  }
-
-  /** Toggle an emoji reaction on a message ("user" or a member botId). */
-  toggleReaction(threadId: string, messageId: string, emoji: string, by: string): Message | null {
-    const existing = this.messagesFor(threadId).find((m) => m.id === messageId);
-    if (!existing) return null;
-    const reactions = existing.reactions ?? [];
-    const at = reactions.findIndex((r) => r.emoji === emoji && r.by === by);
-    const next = at >= 0 ? reactions.filter((_, i) => i !== at) : [...reactions, { emoji, by }];
-    return this.patchMessage(threadId, messageId, { reactions: next.length ? next : undefined });
   }
 
   private thread(threadId: string): ThreadState {

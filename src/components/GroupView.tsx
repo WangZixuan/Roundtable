@@ -23,7 +23,6 @@ import { ConnectorCard } from "./ConnectorCard";
 import { SecretRequestCard } from "./SecretRequestCard";
 import { AttachedImageGallery } from "./AttachmentPreview";
 import { GroupCallOverlay } from "./GroupCallView";
-import { ReactionBar, ReactionChips } from "./Reactions";
 import { ApprovalCard } from "./ApprovalCard";
 import { ManageMembersPanel } from "./ManageMembersPanel";
 import { CoordinatorMissionControl } from "./CoordinatorMissionControl";
@@ -175,7 +174,6 @@ const Transcript = memo(function Transcript({
           ) : m.kind === "text" && m.text ? (
             <div className={cn("group flex w-full flex-col", user ? "items-end" : "items-start")}>
               <div className={cn("flex w-full items-end gap-1.5", user ? "justify-end" : "flex-wrap justify-start")}>
-                {user && <ReactionBar threadId={group.threadId} message={m} />}
                 <button
                   type="button"
                   onClick={() => onReply(m)}
@@ -217,12 +215,10 @@ const Transcript = memo(function Transcript({
                     </>
                   ) : <><ChatMarkdown text={m.text} /><ChannelDelivery groupId={group.id} message={m} /></>}
                 </div>
-                {!user && <ReactionBar threadId={group.threadId} message={m} />}
                 <span className="self-end pb-1 text-[11px] tabular-nums text-ink-secondary/70 opacity-0 transition-opacity group-hover:opacity-100">
                   {formatTime(m.at)}
                 </span>
               </div>
-              <ReactionChips threadId={group.threadId} message={m} members={members} align={user ? "right" : "left"} />
             </div>
           ) : null;
         if (!row) return null;

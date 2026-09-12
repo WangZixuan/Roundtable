@@ -462,8 +462,7 @@ describe("Store change stream", () => {
     store.patchMessage(bot.threadId, first.id, { text: "a2" });
     store.branchMessage(bot.threadId, first.id, "b");
     store.setActiveLeaf(bot.threadId, first.id);
-    store.toggleReaction(bot.threadId, first.id, "👍", "user");
-    expect(events.map((e) => e.type)).toEqual(["message.patch", "message", "thread", "message.patch"]);
+    expect(events.map((e) => e.type)).toEqual(["message.patch", "message", "thread"]);
     expect(events[2]).toMatchObject({ type: "thread", threadId: bot.threadId, activeLeafId: expect.any(String) });
   });
 

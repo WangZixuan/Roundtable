@@ -3844,16 +3844,6 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse): 
       return json(res, 200, { ok: true });
     }
 
-    // emoji reactions — works on any thread (1:1 or room)
-    m = path.match(/^\/api\/threads\/([\w-]+)\/messages\/([\w-]+)\/reactions$/);
-    if (m && method === "POST") {
-      const body = await readBody(req);
-      const emoji = String(body.emoji ?? "").slice(0, 8);
-      if (!emoji) return json(res, 400, { error: "emoji required" });
-      const patched = store.toggleReaction(m[1], m[2], emoji, typeof body.by === "string" ? body.by : "user");
-      if (!patched) return json(res, 404, { error: "no such message" });
-      return json(res, 200, { message: patched });
-    }
     if (method === "POST" && path === "/api/bots") {
       const bot = store.createBot();
       store.patchBot(bot.id, { modelSelection: await defaultSelection() });
