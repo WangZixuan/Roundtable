@@ -2,9 +2,6 @@
 
 Roundtable is a local-first desktop app for organizing and running a team of AI bots. Each bot can use its own provider, model, instructions, working directory, and avatar; bots can also collaborate in shared channels.
 
-> [!NOTE]
-> Roundtable began as a fork of [OpenMausBot](https://github.com/milind-soni/OpenMausBot). It is now an independently developed project with a different product direction and is not an official OpenMausBot release. The upstream Apache 2.0 license and attribution are preserved in [LICENSE](LICENSE) and [NOTICE](NOTICE).
-
 ## Current capabilities
 
 - Create reusable bot profiles with custom avatars, models, instructions, and working folders.
