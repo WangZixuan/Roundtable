@@ -14,6 +14,7 @@ import {
   ListTree,
   Loader2,
   MessageSquareReply,
+  MoreHorizontal,
   Pencil,
   Pin,
   PinOff,
@@ -26,6 +27,7 @@ import {
 import { costCaption, formatTokens, formatUsd, hasFiniteCost, usageChip } from "@/lib/usage";
 import {
   useStore,
+  api,
   useStreaming,
   formatTime,
   messageVersions,
@@ -33,9 +35,10 @@ import {
   type Bot,
   type InstanceInfo,
   type Message,
+  type Task,
 } from "@/state/store";
 import { EngineSetup } from "./EngineSetup";
-import { BotAvatar, MausAvatar, STANDARD_BOT_AVATAR_SIZE } from "./Avatar";
+import { BotAvatar, MausAvatar } from "./Avatar";
 import { stateForBot } from "@/lib/mascot";
 import { showWorkingDots } from "@/lib/turn-tail";
 import { ChatMarkdown } from "./ChatMarkdown";
@@ -53,6 +56,7 @@ import { TaskPicker } from "./TaskPicker";
 import { ReactionBar, ReactionChips } from "./Reactions";
 import { SpeakButton } from "./SpeakButton";
 import { CallOverlay } from "./CallView";
+import { BotDelivery } from "./BotDelivery";
 import { cn } from "@/lib/cn";
 import { COMPACT_BUBBLE, COMPACT_SQUARE } from "@/lib/compact-chip";
 import { useFocusMessage } from "@/lib/focus-message";
@@ -92,11 +96,136 @@ function DaySeparator({ at }: { at: number }) {
   );
 }
 
-function TaskTimeline({ messages, busy }: { messages: Message[]; busy: boolean }) {
+function taskGoal(messages: Message[]): string | null {
+  const firstRequest = messages.find(
+    (message) => message.role === "user" && message.kind === "text" && Boolean(message.text?.trim()),
+  );
+  if (!firstRequest?.text) return null;
+  const attached = splitAttachedImages(firstRequest.text);
+  const goal = (attached?.display ?? firstRequest.text).replace(/\s+/g, " ").trim();
+  return goal || null;
+}
+
+/** A task's first request is the durable, user-authored brief. We deliberately
+ * do not invent a mutable summary that could drift from the transcript. */
+function TaskBrief({ task, messages, bot }: { task: Task | undefined; messages: Message[]; bot: Bot }) {
+  const goal = useMemo(() => taskGoal(messages), [messages]);
+  if (!task || !goal) return null;
+  const status =
+    bot.activity === "waiting-on-you"
+      ? "Needs your input"
+      : bot.busy
+        ? "Working"
+        : "Ready";
+  const turns = task.usage?.turns ?? 0;
+  return (
+    <details className="group mx-auto w-full max-w-[900px] px-5">
+      <summary className="flex cursor-pointer list-none items-center gap-2 rounded-lg px-2 py-1.5 text-[12.5px] text-ink-secondary hover:bg-raised/50 hover:text-ink">
+        <span className="shrink-0 font-medium">Task brief</span>
+        <span className="truncate text-ink-secondary/75">· {goal}</span>
+        <ChevronDown size={14} className="ml-auto shrink-0 transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="mb-2 grid gap-3 border-l border-hairline/40 py-1 pl-3 text-[12.5px] sm:grid-cols-[minmax(0,1fr)_auto]">
+        <div className="min-w-0">
+          <div className="mb-0.5 text-[11px] font-medium uppercase tracking-wide text-ink-secondary/70">Goal</div>
+          <p className="text-ink-secondary">{goal}</p>
+        </div>
+        <div className="flex shrink-0 items-end gap-2 text-[11.5px] text-ink-secondary">
+          <span>{status}</span>
+          <span aria-hidden="true">·</span>
+          <span>{turns} {turns === 1 ? "turn" : "turns"}</span>
+          <span aria-hidden="true">·</span>
+          <span>{dayLabel(task.createdAt)}</span>
+        </div>
+      </div>
+      <TaskCheckpoint botId={bot.id} task={task} />
+    </details>
+  );
+}
+
+/** A deliberately small task-owned note. It complements the transcript rather
+ * than replacing it, and is the only compact state injected into later turns. */
+function TaskCheckpoint({ botId, task }: { botId: string; task: Task }) {
+  const [editing, setEditing] = useState(false);
+  const [summary, setSummary] = useState(task.checkpoint?.summary ?? "");
+  const [nextStep, setNextStep] = useState(task.checkpoint?.nextStep ?? "");
+  const [status, setStatus] = useState<NonNullable<Task["checkpoint"]>["status"]>(task.checkpoint?.status ?? "active");
+  const [saved, setSaved] = useState(task.checkpoint);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSaved(task.checkpoint);
+    if (!editing) {
+      setSummary(task.checkpoint?.summary ?? "");
+      setNextStep(task.checkpoint?.nextStep ?? "");
+      setStatus(task.checkpoint?.status ?? "active");
+    }
+  }, [task.checkpoint, editing]);
+
+  const save = async () => {
+    setError(null);
+    try {
+      const result = await api(`/api/bots/${botId}/tasks/${task.threadId}/checkpoint`, {
+        method: "PATCH",
+        body: JSON.stringify({ summary, nextStep, status }),
+      });
+      setSaved(result.task.checkpoint);
+      setEditing(false);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not save checkpoint");
+    }
+  };
+
+  if (!saved && !editing) {
+    return <button type="button" onClick={() => setEditing(true)} className="mb-2 ml-3 text-[12px] text-accent hover:underline">
+      Add a continuity checkpoint
+    </button>;
+  }
+
+  if (!editing) {
+    const statusLabel = saved?.status === "blocked" ? "Blocked" : saved?.status === "completed" ? "Completed" : "In progress";
+    return <div className="mb-2 ml-3 rounded-lg border border-hairline/40 bg-raised/20 px-3 py-2 text-[12.5px]">
+      <div className="flex items-center gap-2 text-ink-secondary">
+        <span className="font-medium text-ink">Continuity</span><span>·</span><span>{statusLabel}</span>
+        <button type="button" onClick={() => setEditing(true)} className="ml-auto text-accent hover:underline">Update</button>
+      </div>
+      {saved?.summary && <p className="mt-1 whitespace-pre-wrap text-ink-secondary">{saved.summary}</p>}
+      {saved?.nextStep && <p className="mt-1 text-ink-secondary"><span className="font-medium text-ink">Next:</span> {saved.nextStep}</p>}
+    </div>;
+  }
+
+  return <div className="mb-2 ml-3 rounded-lg border border-hairline/50 bg-raised/20 p-3 text-[12.5px]">
+    <div className="mb-2 flex items-center justify-between"><span className="font-medium text-ink">Continuity checkpoint</span><button type="button" onClick={() => setEditing(false)} className="text-ink-secondary hover:text-ink">Cancel</button></div>
+    <label className="block text-[11px] font-medium uppercase tracking-wide text-ink-secondary/70">Current state</label>
+    <textarea value={summary} onChange={(event) => setSummary(event.target.value)} maxLength={2000} rows={3} placeholder="What is true now, decisions made, and important constraints."
+      className="mt-1 w-full resize-y rounded-md border border-hairline/40 bg-inset px-2 py-1.5 text-ink outline-none focus:border-accent" />
+    <label className="mt-2 block text-[11px] font-medium uppercase tracking-wide text-ink-secondary/70">Next step</label>
+    <input value={nextStep} onChange={(event) => setNextStep(event.target.value)} maxLength={800} placeholder="The most useful next action."
+      className="mt-1 w-full rounded-md border border-hairline/40 bg-inset px-2 py-1.5 text-ink outline-none focus:border-accent" />
+    <div className="mt-2 flex items-center gap-2">
+      <select value={status} onChange={(event) => setStatus(event.target.value === "blocked" ? "blocked" : event.target.value === "completed" ? "completed" : "active")} className="rounded-md border border-hairline/40 bg-inset px-2 py-1.5 text-ink outline-none focus:border-accent">
+        <option value="active">In progress</option><option value="blocked">Blocked</option><option value="completed">Completed</option>
+      </select>
+      <button type="button" onClick={() => void save()} className="rounded-md bg-accent px-2.5 py-1.5 font-medium text-white hover:opacity-90">Save checkpoint</button>
+      {error && <span role="alert" className="text-danger">{error}</span>}
+    </div>
+  </div>;
+}
+
+function TaskTimeline({ messages, busy, activity }: { messages: Message[]; busy: boolean; activity?: Bot["activity"] }) {
   const [open, setOpen] = useState(false);
   const events = useMemo(() => timelineEvents(messages), [messages]);
   if (events.length === 0) return null;
   const recent = events.slice(-8);
+  const latest = recent.at(-1);
+  const needsAttention = activity === "waiting-on-you" || activity === "dead" || latest?.state === "failed";
+  if (!busy && !needsAttention) return null;
+  const stateLabel =
+    activity === "waiting-on-you"
+      ? "needs your input"
+      : needsAttention
+        ? "needs attention"
+        : "running";
   return (
     <div className="mx-auto w-full max-w-[900px] px-5 pt-1">
       <button
@@ -105,7 +234,13 @@ function TaskTimeline({ messages, busy }: { messages: Message[]; busy: boolean }
         aria-expanded={open}
         className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-[12.5px] text-ink-secondary hover:bg-raised/50 hover:text-ink"
       >
-        <span className="flex items-center gap-1.5"><ListTree size={14} /> Execution timeline{busy ? " · running" : ""}</span>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <ListTree size={14} className="shrink-0" />
+          <span className="shrink-0">Activity · {stateLabel}</span>
+          {!open && latest && (
+            <span className="truncate text-ink-secondary/70">· {latest.label}</span>
+          )}
+        </span>
         <ChevronDown size={14} className={cn("transition-transform", open && "rotate-180")} />
       </button>
       {open && (
@@ -250,7 +385,7 @@ class MessageBoundary extends Component<{ children: ReactNode; fallbackText: str
   render() {
     if (this.state.failed) {
       return (
-        <div className="max-w-[70%] rounded-2xl bg-card px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap text-ink">
+        <div className="w-full px-1 py-1.5 text-[15px] leading-relaxed whitespace-pre-wrap text-ink">
           {this.props.fallbackText}
         </div>
       );
@@ -417,7 +552,7 @@ function Bubble({
               ? "overflow-hidden border border-accent/25 bg-card text-ink shadow-[0_10px_30px_rgba(0,0,0,0.18)]"
               : user
                 ? "bg-bubble-user px-4 py-2.5 whitespace-pre-wrap text-ink"
-                : "bg-card px-4 py-2.5 text-ink",
+                : "px-1 py-1.5 text-ink",
           )}
           title={new Date(message.at).toLocaleString()}
         >
@@ -474,9 +609,12 @@ function Bubble({
               )}
             </>
           ) : (
-            <MessageBoundary fallbackText={text}>
-              <ChatMarkdown text={text} />
-            </MessageBoundary>
+            <>
+              <MessageBoundary fallbackText={text}>
+                <ChatMarkdown text={text} />
+              </MessageBoundary>
+              <BotDelivery botId={bot.id} message={message} />
+            </>
           )}
         </div>
         {!user && (
@@ -604,7 +742,7 @@ function StreamingBubble({ text }: { text: string }) {
   const deferred = useDeferredValue(text);
   return (
     <div className="flex w-full justify-start">
-      <div className="w-full min-w-0 rounded-2xl bg-card px-4 py-2.5 text-[15px] leading-relaxed text-ink">
+      <div className="w-full min-w-0 px-1 py-1.5 text-[15px] leading-relaxed text-ink">
         <MessageBoundary fallbackText={deferred}>
           <ChatMarkdown text={deferred} streaming />
         </MessageBoundary>
@@ -796,10 +934,30 @@ export function ChatView({ bot }: { bot: Bot }) {
   const reasoning = stream.reasoning[bot.threadId];
   const provisioning = state.provisioning[bot.id];
   const mascotMotion = state.mascotMotion?.botId === bot.id ? state.mascotMotion : null;
+  const currentTask = bot.tasks?.find((task) => task.threadId === bot.threadId);
   const [findOpen, setFindOpen] = useState(false);
+  const [contextOpen, setContextOpen] = useState(false);
+  const contextRef = useRef<HTMLDivElement>(null);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   useEffect(() => setFindOpen(false), [bot.threadId]);
+  useEffect(() => setContextOpen(false), [bot.threadId]);
   useEffect(() => setReplyTo(null), [bot.threadId]);
+  useEffect(() => {
+    if (!contextOpen) return;
+    const onMouseDown = (event: MouseEvent) => {
+      const target = event.target instanceof Node ? event.target : null;
+      if (!contextRef.current?.contains(target)) setContextOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setContextOpen(false);
+    };
+    window.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [contextOpen]);
   useEffect(() => {
     const onFind = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
@@ -1001,20 +1159,27 @@ export function ChatView({ bot }: { bot: Bot }) {
             <BotAvatar
               bot={bot}
               state={stateForBot({ ...bot, messages })}
-              size={STANDARD_BOT_AVATAR_SIZE}
+              size={28}
               motion={mascotMotion?.kind ?? "none"}
               motionKey={mascotMotion?.nonce ?? 0}
             />
           </button>
-          <RenameTitle
-            value={bot.name}
-            onCommit={(name) => dispatch({ type: "updateBot", botId: bot.id, patch: { name } })}
-            onActivate={() => dispatch({ type: "toggleSettings", open: true })}
-            showEditButton
-            className="truncate text-[15px] font-semibold text-ink"
-            inputClassName="max-w-[220px] rounded bg-inset px-1.5 py-0.5 text-[15px] font-semibold"
-          />
-          {bot.busy && <Loader2 size={14} className="animate-spin text-ink-secondary" />}
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-2">
+              <RenameTitle
+                value={bot.name}
+                onCommit={(name) => dispatch({ type: "updateBot", botId: bot.id, patch: { name } })}
+                onActivate={() => dispatch({ type: "toggleSettings", open: true })}
+                showEditButton
+                className="truncate text-[15px] font-semibold text-ink"
+                inputClassName="max-w-[220px] rounded bg-inset px-1.5 py-0.5 text-[15px] font-semibold"
+              />
+              {bot.busy && <Loader2 size={13} className="shrink-0 animate-spin text-ink-secondary" />}
+            </div>
+            <div className="max-w-[320px] truncate text-[11.5px] text-ink-secondary">
+              {currentTask?.title ?? "Direct conversation"}
+            </div>
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-2" style={noDrag}>
           <button
@@ -1043,21 +1208,56 @@ export function ChatView({ bot }: { bot: Bot }) {
             </button>
           )}
           <TaskPicker bot={bot} />
-          <UsageChip bot={bot} />
-          <WorkingFolderChip bot={bot} />
           <ModelPicker bot={bot} />
-          <button
-            onClick={() => dispatch({ type: "toggleInspector" })}
-            aria-label="Inspector"
-            aria-pressed={state.inspectorOpen}
-            className={cn(
-              "rounded-md p-1.5 hover:bg-raised",
-              state.inspectorOpen ? "text-accent" : "text-ink-secondary hover:text-ink",
+          <div ref={contextRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setContextOpen((open) => !open)}
+              aria-expanded={contextOpen}
+              aria-haspopup="dialog"
+              aria-label="Conversation context"
+              title="Conversation context"
+              className={cn(
+                "flex items-center justify-center rounded-md p-1.5 hover:bg-raised",
+                contextOpen ? "text-accent" : "text-ink-secondary hover:text-ink",
+              )}
+            >
+              <MoreHorizontal size={18} />
+            </button>
+            {contextOpen && (
+              <div
+                role="dialog"
+                aria-label="Conversation context"
+                className="absolute right-0 top-full z-50 mt-2 w-[300px] rounded-xl border border-hairline/50 bg-card p-3 shadow-2xl shadow-black/40"
+              >
+                <div className="px-1 pb-2 text-[11px] font-medium uppercase tracking-wide text-ink-secondary">
+                  Conversation context
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <UsageChip bot={bot} />
+                  <WorkingFolderChip bot={bot} />
+                </div>
+                <button
+                  onClick={() => {
+                    dispatch({ type: "toggleInspector" });
+                    setContextOpen(false);
+                  }}
+                  aria-pressed={state.inspectorOpen}
+                  className={cn(
+                    "mt-2 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-[12.5px] hover:bg-raised",
+                    state.inspectorOpen ? "text-accent" : "text-ink-secondary hover:text-ink",
+                  )}
+                  title="Runtime events and raw protocol for this thread"
+                >
+                  <Bug size={15} />
+                  <span>Inspector</span>
+                  <span className="ml-auto text-[11px] text-ink-secondary/70">
+                    {state.inspectorOpen ? "Open" : "Protocol details"}
+                  </span>
+                </button>
+              </div>
             )}
-            title="Inspector — runtime events and raw protocol for this thread"
-          >
-            <Bug size={18} />
-          </button>
+          </div>
         </div>
       </div>
 
@@ -1085,7 +1285,9 @@ export function ChatView({ bot }: { bot: Bot }) {
         }
       />
 
-      <TaskTimeline messages={messages} busy={bot.busy ?? false} />
+      <TaskBrief task={currentTask} messages={messages} bot={bot} />
+
+      <TaskTimeline messages={messages} busy={bot.busy ?? false} activity={bot.activity} />
 
       {/* Messages */}
       <div

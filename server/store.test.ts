@@ -87,6 +87,28 @@ describe("Store", () => {
     expect(reloaded.taskByThread(bot.id, bot.threadId)?.usage).toEqual({ input: 2000, output: 400, costUsd: null, turns: 3 });
   });
 
+  it("persists a bounded per-task checkpoint without sharing it with another task", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const updated = store.updateTaskCheckpoint(bot.id, bot.threadId, {
+      summary: "Chosen direction is stable.",
+      nextStep: "Run the focused verification.",
+      status: "active",
+    });
+    expect(updated?.checkpoint).toMatchObject({
+      summary: "Chosen direction is stable.",
+      nextStep: "Run the focused verification.",
+      status: "active",
+    });
+
+    const another = store.createTask(bot.id, "Separate work")!;
+    expect(another.checkpoint).toBeUndefined();
+    expect(new Store(selection).taskByThread(bot.id, updated!.threadId)?.checkpoint?.nextStep).toBe("Run the focused verification.");
+
+    store.updateTaskCheckpoint(bot.id, updated!.threadId, { summary: "", nextStep: "", status: "completed" });
+    expect(store.taskByThread(bot.id, updated!.threadId)?.checkpoint).toBeUndefined();
+  });
+
   it("persists the per-bot composio gate", () => {
     const store = new Store(selection);
     const bot = store.createBot();

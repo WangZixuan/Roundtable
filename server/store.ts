@@ -176,6 +176,17 @@ export interface GroupRecord {
  * transcript, and — the part that actually matters — its own provider
  * session. Sharing resume cursors between tasks would resume the other
  * task's session and quietly undo the whole thing. */
+export type TaskCheckpointStatus = "active" | "blocked" | "completed";
+
+/** Compact, user-maintained continuity context for one task. It is distinct
+ * from the transcript (audit history) and from a Bot's reusable MEMORY.md. */
+export interface TaskCheckpoint {
+  summary: string;
+  nextStep: string;
+  status: TaskCheckpointStatus;
+  updatedAt: number;
+}
+
 export interface TaskRecord {
   threadId: ThreadId;
   title: string;
@@ -195,6 +206,8 @@ export interface TaskRecord {
    * a folder that moved under a live session would break resume. `null`
    * = pinned to the default (home); absent = not pinned yet. */
   cwd?: string | null;
+  /** A bounded checkpoint for resuming work after a task switch or restart. */
+  checkpoint?: TaskCheckpoint;
 }
 
 export interface TaskUsage {
@@ -494,7 +507,7 @@ export class Store {
         botsMigrated = true;
       }
       if (b.avatarCrop !== undefined && avatar.avatarCrop !== b.avatarCrop) {
-        b.avatarCrop = avatar.avatarCrop;
+        delete b.avatarCrop;
         botsMigrated = true;
       }
     }
@@ -632,7 +645,7 @@ export class Store {
 
   private projectChannelMessage(threadId: string, message: Message): void {
     const session = this.channelSession(threadId);
-    if (!session || message.role !== "bot" || message.source || message.kind === "activity") return;
+    if (!session || message.role !== "bot" || message.source) return;
     const { group, bot } = session;
     const existing = this.messagesFor(group.threadId).find((m) => m.source?.threadId === threadId && m.source.messageId === message.id);
     const { id, parentId: _parent, ...body } = message;
@@ -1095,6 +1108,22 @@ export class Store {
     const task = this.bot(botId)?.tasks?.find((t) => t.threadId === threadId);
     if (!task) return null;
     task.title = title.trim().slice(0, 80) || UNTITLED_TASK;
+    this.saveBots();
+    this.emit({ type: "bot", botId });
+    return task;
+  }
+
+  updateTaskCheckpoint(
+    botId: string,
+    threadId: string,
+    checkpoint: Pick<TaskCheckpoint, "summary" | "nextStep" | "status">,
+  ): TaskRecord | null {
+    const task = this.taskByThread(botId, threadId);
+    if (!task) return null;
+    const summary = checkpoint.summary.trim().slice(0, 2_000);
+    const nextStep = checkpoint.nextStep.trim().slice(0, 800);
+    if (!summary && !nextStep) delete task.checkpoint;
+    else task.checkpoint = { summary, nextStep, status: checkpoint.status, updatedAt: Date.now() };
     this.saveBots();
     this.emit({ type: "bot", botId });
     return task;

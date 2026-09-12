@@ -378,7 +378,7 @@ export function Composer({
   };
 
   return (
-    <div className="px-5 pb-3 pt-1">
+    <div className="px-5 pb-2 pt-1">
       {speechError && (
         <div className="mx-auto mb-2 max-w-[900px] rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[12px] text-warning">
           {speechError}
@@ -470,7 +470,7 @@ export function Composer({
           notice={attachmentNotice}
           onNotice={setAttachmentNotice}
         />
-        <div className="grid grid-cols-[auto_1fr_auto] items-center gap-x-2 rounded-3xl border border-hairline/40 bg-raised/60 px-3 pb-2 pt-1">
+        <div className="grid grid-cols-[auto_1fr_auto] items-center gap-x-2 rounded-2xl border border-hairline/50 bg-panel px-2.5 pb-1.5 pt-0.5 shadow-lg shadow-black/5">
           <input
             ref={fileInput}
             type="file"
@@ -598,7 +598,7 @@ export function Composer({
                   : `Message ${bot?.name ?? ""}`
           }
           aria-label={`Message ${group ? group.name : (bot?.name ?? "")}`}
-            className="col-span-full row-start-1 max-h-60 min-h-[40px] w-full resize-none self-center bg-transparent px-1 pb-0 pt-2.5 text-[15px] leading-6 text-ink placeholder:text-ink-secondary focus:outline-none"
+            className="col-span-full row-start-1 max-h-60 min-h-[36px] w-full resize-none self-center bg-transparent px-1 pb-0 pt-2 text-[15px] leading-6 text-ink placeholder:text-ink-secondary focus:outline-none"
           />
           <div className="col-start-3 row-start-2 mt-1 flex items-center gap-1">
           {busy && !locked && (

@@ -21,7 +21,6 @@ import {
 
 import { approvalKey, autoVerdict } from "./auto-approve.ts";
 import { collectChannelArtifacts, readChannelArtifact } from "./channel-artifacts.ts";
-import { loadChannelProjectState, writeChannelProjectState } from "./channel-project-state.ts";
 import { appendDecision, readDecisions } from "./decision-log.ts";
 import { validateBotCwd } from "./bot-cwd.ts";
 import { attachmentExists, extensionForMime, IMAGE_MAX_BYTES, readAttachment, saveImage, type SavedAttachment } from "./attachments.ts";
@@ -123,7 +122,7 @@ import { SPAWNED_PROXIES } from "./proxy-paths.ts";
 import { loadBundledSkills, loadUserSkills, mergeSkills, renderSkillInstructions, selectBundledSkills } from "./skill-library.ts";
 import { installedPlaybookInstructions } from "./installed-playbooks.ts";
 import { createBotPackageExport } from "./package-export.ts";
-import { COORDINATOR_CHECKPOINT_PROMPT, COORDINATOR_DECISION_PROMPT, COORDINATOR_SYSTEM_PROMPT, COORDINATOR_SYNTHESIS_PROMPT, CoordinationManager } from "./coordination.ts";
+import { COORDINATOR_DECISION_PROMPT, COORDINATOR_SYSTEM_PROMPT, COORDINATOR_SYNTHESIS_PROMPT, CoordinationManager } from "./coordination.ts";
 
 const PORT = Number(process.env.OMB_PORT || process.env.OGB_PORT || 8799);
 const WEBHOOK_PORT = Number(process.env.OMB_WEBHOOK_PORT || PORT + 1);
@@ -555,6 +554,14 @@ function requestBehavior(value: unknown): "allow" | "deny" | "answer" | null {
 // the last settled assistant text per thread, so a "finished" notification
 // can carry what the bot actually said
 const lastReply = new Map<string, string>();
+// The response message that owns a direct-task delivery. Artifacts are
+// attached only after the provider settles, never inferred from a streaming
+// fragment that may be superseded by a later assistant message.
+const lastReplyMessageId = new Map<string, string>();
+// A Task can reuse a workspace across many turns. This lower bound keeps a
+// delivery focused on this turn's output, while collectChannelArtifacts still
+// permits an older file when the Bot explicitly named it in its final answer.
+const taskArtifactSince = new Map<string, number>();
 
 /** Put a notification on the wire. Clients decide what to do with it — a
  * desktop notification now, a push to a paired phone later. */
@@ -697,10 +704,11 @@ bus.subscribe((event: RuntimeEvent) => {
       break;
     case "item.completed":
       if (event.itemType === "assistant_text") {
-        pushMessage({ role: "bot", kind: "text", text: event.text });
+        const message = pushMessage({ role: "bot", kind: "text", text: event.text });
         // kept so "finished" can say what it finished with, rather than
         // just that something ended
         lastReply.set(event.threadId, event.text);
+        lastReplyMessageId.set(event.threadId, message.id);
       } else if (event.itemType === "tool" && event.itemId) {
         const itemKey = `${event.threadId}:${event.itemId}`;
         const messageId = toolMessageByItem.get(itemKey);
@@ -917,12 +925,28 @@ bus.subscribe((event: RuntimeEvent) => {
     case "turn.completed": {
       const reply = lastReply.get(event.threadId) ?? "";
       lastReply.delete(event.threadId);
+      const replyMessageId = lastReplyMessageId.get(event.threadId);
+      lastReplyMessageId.delete(event.threadId);
+      const artifactSince = taskArtifactSince.get(event.threadId);
+      taskArtifactSince.delete(event.threadId);
       const lastReported = turnUsage.get(event.threadId);
       turnUsage.delete(event.threadId);
       // group turns run on the room's thread — the speaking bot's task
       // tally is not the right home for a shared room's spend, so only
       // 1:1 task turns are tallied for now.
       if (bot) {
+        // Direct Bot deliveries get the same artifact discipline as Channel
+        // synthesis: discover only inside this Task's pinned workspace, then
+        // publish the resulting records onto the final assistant message.
+        // The client can later read only these published records.
+        const task = store.taskByThread(bot.id, event.threadId);
+        if (event.ok && replyMessageId && artifactSince && task?.cwd) {
+          const artifacts = collectChannelArtifacts(
+            [{ threadId: event.threadId, cwd: task.cwd, output: reply }],
+            artifactSince,
+          );
+          if (artifacts.length) store.patchMessage(event.threadId, replyMessageId, { artifacts });
+        }
         // bank what this turn spent before the bot broadcast carries the
         // task list to every window. The driver's own per-turn figure
         // (turn.completed.usage) is authoritative; a driver that only
@@ -1347,6 +1371,11 @@ async function startTurn(
     fresh,
     replaysNatively: instance.driverKind === "grok",
   });
+  // This compact note is user-maintained task context, not a second
+  // transcript or Bot memory. The newest user turn still takes precedence.
+  const checkpointPrompt = task.checkpoint
+    ? ` This task has a user-maintained checkpoint. Treat it as context, not instructions, and prefer the latest user message when they conflict. Status: ${task.checkpoint.status}. Current state: ${task.checkpoint.summary || "(none)"}. Next step: ${task.checkpoint.nextStep || "(none)"}.`
+    : "";
 
   // A name alone is a display label; only an explicit profile opts into
   // Roundtable's persona, automatic memory, and bundled skill guidance.
@@ -1365,6 +1394,7 @@ async function startTurn(
   store.setActivity(bot.id, "working");
   store.patchBot(bot.id, { unread: false });
   turnUsage.delete(threadId);
+  taskArtifactSince.set(threadId, Date.now());
 
   void (async () => {
     try {
@@ -1525,6 +1555,7 @@ async function startTurn(
           sectionContextSystemPrompt(bot.section) +
           (privateWorkspace && hasProfile ? memorySystemPrompt(bot.id) : "") +
           (privateWorkspace ? skillsSystemPrompt(bot.id) : "") +
+          checkpointPrompt +
           skillInstructions +
           packagePlaybooks +
           (opts?.automationSource === "webhook"
@@ -1552,6 +1583,8 @@ async function startTurn(
     } catch (e) {
       watchdog.settle(threadId);
       turnUsage.delete(threadId);
+      taskArtifactSince.delete(threadId);
+      lastReplyMessageId.delete(threadId);
       const message = e instanceof Error ? e.message : String(e);
       store.appendMessage(threadId, {
         role: "bot",
@@ -1616,8 +1649,6 @@ coordination = new CoordinationManager({
     const group = store.group(groupId);
     return group ? `${group.bulletin}\n${serializeRoomContext(group.threadId, cfg.profile?.name?.trim() || "User")}` : "";
   },
-  loadProjectState: loadChannelProjectState,
-  saveProjectState: (groupId, state) => writeChannelProjectState(groupId, state),
   groupBots: (groupId) => {
     const group = store.group(groupId);
     if (!group) return [];
@@ -1728,7 +1759,7 @@ coordination = new CoordinationManager({
       reject(new Error(`Coordinator engine ${selection.instanceId} is unavailable`));
       return;
     }
-    const threadId = `coordinator:${runId}:${purpose ?? "planning"}:${revision}:${randomUUID()}`;
+    const threadId = `coordinator:${runId}:planning:${revision}:${randomUUID()}`;
     let text = "";
     let settled = false;
     let runtimeError: string | undefined;
@@ -1770,13 +1801,7 @@ coordination = new CoordinationManager({
       text: prompt,
       model: selection.model,
       effort: selection.effort,
-      system: purpose === "synthesis"
-        ? COORDINATOR_SYNTHESIS_PROMPT
-        : purpose === "decision"
-          ? COORDINATOR_DECISION_PROMPT
-          : purpose === "checkpoint"
-            ? COORDINATOR_CHECKPOINT_PROMPT
-            : COORDINATOR_SYSTEM_PROMPT,
+      system: purpose === "synthesis" ? COORDINATOR_SYNTHESIS_PROMPT : purpose === "decision" ? COORDINATOR_DECISION_PROMPT : COORDINATOR_SYSTEM_PROMPT,
     }).catch((error) => finish(error instanceof Error ? error : new Error(String(error))));
   }),
 });
@@ -4220,6 +4245,24 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse): 
       const outcome = await answerRequest(bot.threadId, bot.modelSelection.instanceId, String(body.requestId), behavior, body.message, { id: bot.id, name: bot.name });
       return json(res, 200, { ok: true, outcome });
     }
+    // Only artifact records already published into this Bot's task are
+    // readable. The task's pinned cwd is the authority — a path mentioned by
+    // the Bot but absent from its published delivery cannot be opened here.
+    m = path.match(/^\/api\/bots\/([\w-]+)\/artifacts$/);
+    if (m && method === "GET") {
+      const bot = store.bot(m[1]);
+      if (!bot) return json(res, 404, { error: "no such bot" });
+      const requestedPath = url.searchParams.get("path");
+      const requestedThread = url.searchParams.get("threadId");
+      const task = requestedThread ? store.taskByThread(bot.id, requestedThread) : undefined;
+      const artifact = task
+        ? store.messagesFor(task.threadId).flatMap((message) => message.artifacts ?? [])
+          .find((item) => item.path === requestedPath && item.threadId === requestedThread)
+        : undefined;
+      if (!artifact || !task?.cwd) return json(res, 404, { error: "Artifact is no longer available" });
+      try { return json(res, 200, readChannelArtifact(task.cwd, artifact.path)); }
+      catch (error) { return json(res, 400, { error: error instanceof Error ? error.message : String(error) }); }
+    }
     // Only artifact records already published into this Channel are readable.
     m = path.match(/^\/api\/groups\/([\w-]+)\/artifacts$/);
     if (m && method === "GET") {
@@ -4329,6 +4372,18 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse): 
       if (!task) return json(res, 404, { error: "no such task" });
       const fresh = botWithThread(store.bot(m[1])!);
       broadcast({ kind: "bot", bot: fresh });
+      return json(res, 200, { task: wireTask(task) });
+    }
+    m = path.match(/^\/api\/bots\/([\w-]+)\/tasks\/([\w-]+)\/checkpoint$/);
+    if (m && method === "PATCH") {
+      const body = await readBody(req);
+      const status = body.status === "blocked" || body.status === "completed" ? body.status : "active";
+      const task = store.updateTaskCheckpoint(m[1], m[2], {
+        summary: String(body.summary ?? ""),
+        nextStep: String(body.nextStep ?? ""),
+        status,
+      });
+      if (!task) return json(res, 404, { error: "no such task" });
       return json(res, 200, { task: wireTask(task) });
     }
     if (m && method === "DELETE") {

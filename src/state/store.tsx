@@ -239,6 +239,13 @@ export interface ModelSelection {
 
 /** One of a bot's separate contexts: its own thread, transcript and
  * provider session. The bot's threadId points at the active one. */
+export type TaskCheckpoint = {
+  summary: string;
+  nextStep: string;
+  status: "active" | "blocked" | "completed";
+  updatedAt: number;
+};
+
 export interface Task {
   threadId: string;
   title: string;
@@ -248,6 +255,7 @@ export interface Task {
   /** folder this task's turns run in, pinned on its first turn; null =
    * legacy home-folder session; absent = not pinned yet */
   cwd?: string | null;
+  checkpoint?: TaskCheckpoint;
 }
 
 export interface TaskUsage {
