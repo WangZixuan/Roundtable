@@ -98,6 +98,7 @@ export function ModelPicker({
   contained = false,
   label,
   placement = "down",
+  transparentTrigger = false,
 }: {
   bot: Bot;
   className?: string;
@@ -106,6 +107,7 @@ export function ModelPicker({
   contained?: boolean;
   label?: ReactNode;
   placement?: "up" | "down";
+  transparentTrigger?: boolean;
 }) {
   const { state, dispatch, refreshInstances } = useStore();
   const [open, setOpen] = useState(false);
@@ -226,7 +228,8 @@ export function ModelPicker({
       aria-expanded={open}
       aria-haspopup="dialog"
       className={cn(
-        "flex items-center gap-1.5 rounded-full border border-hairline/40 bg-control/60 py-1 pl-2 pr-2.5 text-[13px] text-ink hover:bg-raised-hover",
+        "flex items-center gap-1.5 rounded-full py-1 pl-2 pr-2.5 text-[13px] text-ink hover:bg-raised-hover",
+        transparentTrigger ? "bg-transparent" : "border border-hairline/40 bg-control/60",
         // in a narrow chat header fold to a rounded square with just the
         // provider mark; the model name rides the tooltip (a bot with no
         // resolved engine keeps its label — the mark is what would hide it)

@@ -79,7 +79,7 @@ function ComposerWorkingFolder({ bot }: { bot: Bot }) {
   if (locked) {
     return (
       <div
-        className="flex max-w-[180px] items-center gap-1.5 rounded-full border border-hairline/30 bg-inset/60 px-2.5 py-1 text-[12.5px] text-ink-secondary"
+        className="flex max-w-[180px] items-center gap-1.5 rounded-full bg-transparent px-2.5 py-1 text-[12.5px] text-ink-secondary"
         title={shownCwd ? `Fixed for this task: ${shownCwd}` : "Fixed for this task: private bot workspace"}
       >
         <Lock size={12} className="shrink-0" aria-hidden="true" />
@@ -98,7 +98,7 @@ function ComposerWorkingFolder({ bot }: { bot: Bot }) {
           setError(null);
           setOpen((current) => !current);
         }}
-        className="flex max-w-[180px] items-center gap-1.5 rounded-full border border-hairline/20 bg-transparent px-2.5 py-1 text-[12.5px] text-ink-secondary hover:bg-raised hover:text-ink"
+        className="flex max-w-[180px] items-center gap-1.5 rounded-full bg-transparent px-2.5 py-1 text-[12.5px] text-ink-secondary hover:bg-raised hover:text-ink"
         title={bot.cwd ? `Working folder: ${bot.cwd}` : "Choose working folder"}
       >
         <Folder size={13} className="shrink-0" aria-hidden="true" />
@@ -202,7 +202,7 @@ function PermissionModeSelector({ bots, targetName, onSetAuto }: { bots: Bot[]; 
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
-        className="flex h-8 items-center gap-1.5 whitespace-nowrap rounded-full border border-hairline/20 bg-transparent px-3 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
+        className="flex h-8 items-center gap-1.5 whitespace-nowrap rounded-full bg-transparent px-3 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
       >
         <Icon size={14} className="opacity-70" />
         {label}
@@ -632,7 +632,7 @@ export function Composer({
                 <PermissionModeSelector bots={permissionBots} targetName={permissionTargetName} onSetAuto={setAuto} />
               )}
               {bot && bot.computer !== "cloud" && <ComposerWorkingFolder bot={bot} />}
-              {bot && <ModelPicker bot={bot} placement="up" />}
+              {bot && <ModelPicker bot={bot} placement="up" transparentTrigger />}
             </div>
           )}
           <textarea
