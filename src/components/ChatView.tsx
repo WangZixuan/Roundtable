@@ -50,7 +50,6 @@ import { TaskPicker } from "./TaskPicker";
 import { CallOverlay } from "./CallView";
 import { BotDelivery } from "./BotDelivery";
 import { cn } from "@/lib/cn";
-import { COMPACT_SQUARE } from "@/lib/compact-chip";
 import { useFocusMessage } from "@/lib/focus-message";
 import { webhookMessageView } from "@/lib/webhook-message";
 import { splitAttachedImages } from "@/lib/composer-attachments";
@@ -999,7 +998,7 @@ export function ChatView({ bot }: { bot: Bot }) {
             </div>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2" style={noDrag}>
+        <div className="flex shrink-0 items-center gap-1" style={noDrag}>
           <button
             onClick={() => setFindOpen((open) => !open)}
             aria-label="Find in conversation"
@@ -1221,16 +1220,15 @@ function InspectorButton({ open, onClick }: { open: boolean; onClick: () => void
   return (
     <button
       onClick={onClick}
+      aria-label="Toggle inspector"
       aria-pressed={open}
       className={cn(
-        "flex h-10 items-center gap-1.5 rounded-md px-3 text-[12.5px] hover:bg-raised",
+        "flex size-10 items-center justify-center rounded-md hover:bg-raised",
         open ? "text-accent" : "text-ink-secondary hover:text-ink",
-        COMPACT_SQUARE,
       )}
       title="Runtime events and raw protocol for this thread"
     >
       <Bug size={18} />
-      <span className="@max-4xl/chathead:hidden">Inspector</span>
     </button>
   );
 }
