@@ -309,20 +309,16 @@ function Bubble({
   bot,
   message,
   editing,
-  isLastBotText,
   onCancelEdit,
   onSubmitEdit,
-  onRegenerate,
   replyTarget,
   onReply,
 }: {
   bot: Bot;
   message: Message;
   editing: boolean;
-  isLastBotText: boolean;
   onCancelEdit: () => void;
   onSubmitEdit: (text: string) => void;
-  onRegenerate?: () => void;
   replyTarget?: Message;
   onReply: () => void;
 }) {
@@ -460,16 +456,6 @@ function Bubble({
         {!user && (
           <div className="flex items-center gap-0.5 self-end pb-0.5">
             <CopyButton text={text} />
-            {isLastBotText && !bot.busy && onRegenerate && (
-              <button
-                onClick={onRegenerate}
-                aria-label="Regenerate response"
-                title="Regenerate response"
-                className="rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
-              >
-                <RefreshCw size={14} />
-              </button>
-            )}
           </div>
         )}
         <span
@@ -613,7 +599,6 @@ const MessagesList = memo(function MessagesList({
   messages,
   transcript,
   editingId,
-  lastBotTextId,
   canRetryLast,
   engine,
   onCancelEdit,
@@ -626,7 +611,6 @@ const MessagesList = memo(function MessagesList({
   /** Active-branch messages, including ones outside the mounted window. */
   transcript: Message[];
   editingId: string | null;
-  lastBotTextId: string | undefined;
   canRetryLast: boolean;
   /** This bot's engine, for rendering setup help on a `setup` error. */
   engine: InstanceInfo | undefined;
@@ -688,10 +672,8 @@ const MessagesList = memo(function MessagesList({
                   bot={bot}
                   message={m}
                   editing={editingId === m.id}
-                  isLastBotText={m.id === lastBotTextId}
                   onCancelEdit={onCancelEdit}
                   onSubmitEdit={(text) => onSubmitEdit(m.id, text)}
-                  onRegenerate={onRegenerate}
                   replyTarget={m.replyToId ? bot.messages.find((candidate) => candidate.id === m.replyToId) : undefined}
                   onReply={() => onReply(m)}
                 />
@@ -788,8 +770,8 @@ export function ChatView({ bot }: { bot: Bot }) {
   // Windowed transcript: only a tail of the thread mounts (screenshots make
   // full threads DOM-heavy). The boundary is anchored per bot+task; a
   // render-phase reset re-tails it on switch so the old thread's boundary
-  // never flashes into the new one. Everything derived below (lastBotTextId,
-  // lastUserMessage, working dots) stays computed from the FULL list.
+  // never flashes into the new one. Everything derived below (lastUserMessage,
+  // working dots) stays computed from the FULL list.
   const transcriptKey = `${bot.id}:${bot.threadId}`;
   const [transcriptWindow, setTranscriptWindow] = useState<{
     key: string;
@@ -812,11 +794,6 @@ export function ChatView({ bot }: { bot: Bot }) {
   } = useMemo(
     () => resolveTranscriptWindow(messages, transcriptWindow.start, TRANSCRIPT_WINDOW_SIZE, transcriptWindow.end),
     [messages, transcriptWindow.start, transcriptWindow.end],
-  );
-
-  const lastBotTextId = useMemo(
-    () => [...messages].reverse().find((m) => m.role === "bot" && m.kind === "text")?.id,
-    [messages],
   );
 
   // one message at a time may be in edit mode
@@ -1104,7 +1081,6 @@ export function ChatView({ bot }: { bot: Bot }) {
             messages={windowedMessages}
             transcript={messages}
             editingId={editingId}
-            lastBotTextId={lastBotTextId}
             canRetryLast={!bot.busy && Boolean(lastUserMessage)}
             engine={state.instances.find((i) => i.instanceId === bot.modelSelection.instanceId)}
             onCancelEdit={cancelEdit}
