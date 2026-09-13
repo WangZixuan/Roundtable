@@ -5,10 +5,9 @@
 // own transcript and its own provider session — so sensitive work, a
 // long job and a quick question can sit side by side under one agent.
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, Layers2, Plus, Trash2 } from "lucide-react";
+import { Check, Layers2, Plus, Trash2 } from "lucide-react";
 import { useStore, formatTime, type Bot, type Task } from "@/state/store";
 import { cn } from "@/lib/cn";
-import { COMPACT_BUBBLE } from "@/lib/compact-chip";
 import { formatTokens } from "@/lib/format-tokens";
 
 /** Quiet per-task token tally — input+output combined, because one honest
@@ -58,13 +57,10 @@ export function TaskPicker({ bot }: { bot: Bot }) {
         onClick={() => dispatch({ type: "newTask", botId: bot.id })}
         disabled={bot.busy}
         title={bot.busy ? "Let this turn finish first" : "New task — a fresh context on this bot"}
-        className={cn(
-          "flex items-center gap-1 rounded-full border border-hairline/40 px-2.5 py-1 text-[12.5px] text-ink-secondary hover:bg-raised hover:text-ink disabled:opacity-40",
-          COMPACT_BUBBLE,
-        )}
+        aria-label="New task"
+        className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink disabled:opacity-40"
       >
-        <Plus size={12} className="@max-4xl/chathead:size-[14px]" />
-        <span className="@max-4xl/chathead:hidden">Task</span>
+        <Plus size={16} />
       </button>
     );
   }
@@ -91,17 +87,9 @@ export function TaskPicker({ bot }: { bot: Bot }) {
         aria-label={`Switch task, ${tasks.length} tasks`}
         aria-expanded={open}
         title={switchTitle}
-        className={cn(
-          "flex max-w-[220px] items-center gap-1.5 rounded-full border border-hairline/40 px-2.5 py-1 text-[12.5px] text-ink-secondary hover:bg-raised hover:text-ink",
-          COMPACT_BUBBLE,
-        )}
+        className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
       >
-        <Layers2 size={14} className="hidden shrink-0 @max-4xl/chathead:block" />
-        <span className="@max-4xl/chathead:hidden">Tasks</span>
-        <span className="flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-raised px-1 text-[11px] tabular-nums text-ink">
-          {tasks.length}
-        </span>
-        <ChevronDown size={12} className="shrink-0 @max-4xl/chathead:hidden" />
+        <Layers2 size={18} />
       </button>
 
       {open && (

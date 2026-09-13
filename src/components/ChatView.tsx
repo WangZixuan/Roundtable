@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Bug,
   Clock,
+  CircleUserRound,
   ListTree,
   Loader2,
   MessageSquareReply,
@@ -33,7 +34,7 @@ import {
   type Task,
 } from "@/state/store";
 import { EngineSetup } from "./EngineSetup";
-import { BotAvatar, MausAvatar } from "./Avatar";
+import { BotAvatar, MausAvatar, STANDARD_BOT_AVATAR_SIZE } from "./Avatar";
 import { stateForBot } from "@/lib/mascot";
 import { showWorkingDots } from "@/lib/turn-tail";
 import { ChatMarkdown } from "./ChatMarkdown";
@@ -1082,38 +1083,32 @@ export function ChatView({ bot }: { bot: Bot }) {
         className={cn(
           // @container so the chips on the right can fold to icon bubbles
           // when the column is narrow (side panel open, small window)
-          "@container/chathead flex items-center justify-between px-5 py-3",
+          "@container/chathead flex items-center justify-between px-5",
           // Room for the drawer button, which overlays this corner below md.
           "pl-11 md:pl-5",
-          isWin && "pr-[148px]",
+          isWin ? "h-12 pr-[148px]" : "py-3",
         )}
         style={drag}
       >
-        <div className="flex min-w-0 items-center gap-2.5 rounded-lg px-1.5 py-1" style={noDrag}>
+        <div className="flex min-w-0 items-center gap-1 rounded-lg pr-1.5 py-1">
           <button
             onClick={() => dispatch({ type: "toggleSettings", open: true })}
-            className="flex size-10 shrink-0 items-center justify-center rounded-lg hover:bg-raised/50"
+            className="-ml-1.5 flex size-10 shrink-0 items-center justify-center rounded-lg hover:bg-raised"
+            style={noDrag}
             title="Open agent profile"
             aria-label={`Open ${bot.name}'s profile`}
           >
             <BotAvatar
               bot={bot}
               state={stateForBot({ ...bot, messages })}
-              size={28}
+              size={STANDARD_BOT_AVATAR_SIZE}
               motion={mascotMotion?.kind ?? "none"}
               motionKey={mascotMotion?.nonce ?? 0}
             />
           </button>
-          <div className="min-w-0">
-            <div className="flex min-w-0 items-center gap-2">
-              <RenameTitle
-                value={bot.name}
-                onCommit={(name) => dispatch({ type: "updateBot", botId: bot.id, patch: { name } })}
-                onActivate={() => dispatch({ type: "toggleSettings", open: true })}
-                showEditButton
-                className="truncate text-[15px] font-semibold text-ink"
-                inputClassName="max-w-[220px] rounded bg-inset px-1.5 py-0.5 text-[15px] font-semibold"
-              />
+          <div className="min-w-0 select-none">
+            <div className="relative top-1 flex min-w-0 items-center gap-2">
+              <span className="truncate text-[15px] font-semibold text-ink">{bot.name}</span>
               {bot.busy && <Loader2 size={13} className="shrink-0 animate-spin text-ink-secondary" />}
             </div>
             <div className="max-w-[320px] truncate text-[11.5px] text-ink-secondary">
@@ -1127,7 +1122,7 @@ export function ChatView({ bot }: { bot: Bot }) {
             aria-label="Find in conversation"
             aria-pressed={findOpen}
             className={cn(
-              "rounded-md p-1.5 hover:bg-raised",
+              "flex size-10 items-center justify-center rounded-md hover:bg-raised",
               findOpen ? "text-accent" : "text-ink-secondary hover:text-ink",
             )}
             title="Find in conversation (⌘F)"
@@ -1314,7 +1309,7 @@ function UsageChip({ bot }: { bot: Bot }) {
   return (
     <button
       onClick={() => dispatch({ type: "toggleSettings", open: true })}
-      className="whitespace-nowrap rounded-full border border-hairline/40 bg-raised/60 px-2.5 py-1 text-[12px] tabular-nums text-ink-secondary hover:bg-raised hover:text-ink @max-4xl/chathead:px-2"
+      className="h-10 whitespace-nowrap rounded-md px-3 text-[12px] tabular-nums text-ink-secondary hover:bg-raised hover:text-ink @max-4xl/chathead:px-2"
       title={detail}
     >
       <span className="@max-4xl/chathead:hidden">{text}</span>
@@ -1328,13 +1323,11 @@ function ProfileButton() {
   return (
     <button
       onClick={() => dispatch({ type: "toggleSettings", open: true })}
-      className={cn(
-        "rounded-full border border-hairline/40 bg-raised/60 px-2.5 py-1 text-[12.5px] text-ink-secondary hover:bg-raised hover:text-ink",
-        COMPACT_SQUARE,
-      )}
+      aria-label="Open agent profile"
+      className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
       title="Profile"
     >
-      Profile
+      <CircleUserRound size={18} strokeWidth={1.8} />
     </button>
   );
 }
@@ -1345,13 +1338,13 @@ function InspectorButton({ open, onClick }: { open: boolean; onClick: () => void
       onClick={onClick}
       aria-pressed={open}
       className={cn(
-        "flex items-center gap-1.5 rounded-full border border-hairline/40 bg-raised/60 px-2.5 py-1 text-[12.5px] hover:bg-raised",
+        "flex h-10 items-center gap-1.5 rounded-md px-3 text-[12.5px] hover:bg-raised",
         open ? "text-accent" : "text-ink-secondary hover:text-ink",
         COMPACT_SQUARE,
       )}
       title="Runtime events and raw protocol for this thread"
     >
-      <Bug size={14} />
+      <Bug size={18} />
       <span className="@max-4xl/chathead:hidden">Inspector</span>
     </button>
   );

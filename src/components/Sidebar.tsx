@@ -1250,7 +1250,11 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     >
       {/* The title-bar strip moves the desktop window; controls remain clickable. */}
       <div
-        className={cn("flex items-center pt-3.5 pb-1", density === "icons" ? "flex-col gap-1 px-2" : "justify-between px-4")}
+        className={cn(
+          "flex items-center",
+          windowsOverlay && density !== "icons" ? "h-12" : "pt-3.5 pb-1",
+          density === "icons" ? "flex-col gap-1 px-2" : "justify-between px-4",
+        )}
         style={windowDragStyle}
       >
         <div className={cn("flex min-w-0 items-center gap-2", density === "icons" && "w-full flex-col")}>
@@ -1263,14 +1267,16 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
               <span className="size-3 rounded-full bg-[#28c840]" />
             </div>
           ) : null}
-          <span
-            className={cn(
-              "select-none truncate text-sm font-semibold text-ink",
-              density === "icons" && "w-full text-center text-[10px] leading-tight",
-            )}
-          >
-            Roundtable
-          </span>
+          {windowsOverlay && (
+            <span
+              className={cn(
+                "select-none truncate text-sm font-semibold text-ink",
+                density === "icons" && "w-full text-center text-[10px] leading-tight",
+              )}
+            >
+              Roundtable
+            </span>
+          )}
         </div>
         <div
           className={cn("relative flex items-center", density === "icons" ? "flex-col gap-1" : "gap-1")}
