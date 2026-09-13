@@ -858,7 +858,7 @@ export function GroupView({ group }: { group: Group }) {
         ref={scrollRef}
         className="flex-1 overflow-y-auto px-5 [overflow-anchor:none]"
         onWheel={(e) => {
-          if (e.deltaY < 0) setBottomFollow(false);
+          if (e.deltaY < 0 && e.currentTarget.scrollHeight > e.currentTarget.clientHeight) setBottomFollow(false);
           else if (atEnd()) setBottomFollow(true);
         }}
         onTouchStart={(e) => (touchY.current = e.touches[0]?.clientY ?? 0)}

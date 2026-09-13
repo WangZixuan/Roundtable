@@ -596,6 +596,7 @@ async function answerRequest(
     store.appendMessage(threadId, {
       role: "bot",
       kind: "activity",
+      turnId: cardMessage?.turnId,
       tool: { name: "Couldn't deliver that answer — the request is no longer open, so the action was not run", ok: false },
     });
   }
@@ -762,7 +763,8 @@ bus.subscribe((event: RuntimeEvent) => {
   const speaker = group ? groupSpeakers.get(event.threadId) : undefined;
 
   const pushMessage = (m: Omit<Message, "id" | "at">) => {
-    const message = store.appendMessage(event.threadId, group && m.role === "bot" ? { ...m, from: speaker } : m);
+    const projected = event.turnId && m.role === "bot" ? { ...m, turnId: event.turnId } : m;
+    const message = store.appendMessage(event.threadId, group && projected.role === "bot" ? { ...projected, from: speaker } : projected);
     return message;
   };
 

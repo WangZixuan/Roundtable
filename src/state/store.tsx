@@ -75,6 +75,8 @@ export interface Message {
   executionReport?: string;
   artifacts?: Array<{ label: string; path: string; threadId: string }>;
   id: string;
+  /** Provider turn that produced this runtime projection. */
+  turnId?: string;
   role: "bot" | "user";
   kind: "text" | "options" | "activity" | "screen" | "connector" | "secret";
   text?: string;
@@ -1220,8 +1222,10 @@ interface StreamState {
   streaming: Record<string, string>;
   /** in-flight extended thinking per threadId (ephemeral) */
   reasoning: Record<string, string>;
+  /** Provider turn currently producing runtime rows for each thread. */
+  activeTurns: Record<string, string>;
 }
-const EMPTY_STREAM: StreamState = { streaming: {}, reasoning: {} };
+const EMPTY_STREAM: StreamState = { streaming: {}, reasoning: {}, activeTurns: {} };
 const StreamContext = createContext<StreamState>(EMPTY_STREAM);
 
 export function useStreaming() {
@@ -1250,7 +1254,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const deltaBuffer = useRef(new Map<string, { text: string; reasoning: string }>());
   const deltaFlush = useRef<number | null>(null);
   const messagePageRequests = useRef(new Map<string, Promise<void>>());
-  const clearStream = (threadId: string) => {
+  const clearStream = (threadId: string, clearTurn = false) => {
     // Drop the thread's un-flushed deltas too: the settled message that
     // triggered this clear already contains them. Without this, the pending
     // rAF re-creates a "ghost" stream bubble holding the tail fragment —
@@ -1260,10 +1264,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // duplicated tail instead of starting a fresh bubble.
     deltaBuffer.current.delete(threadId);
     setStream((prev) => {
-      if (!(threadId in prev.streaming) && !(threadId in prev.reasoning)) return prev;
+      if (!(threadId in prev.streaming) && !(threadId in prev.reasoning) && (!clearTurn || !(threadId in prev.activeTurns))) return prev;
       const { [threadId]: _s, ...streaming } = prev.streaming;
       const { [threadId]: _r, ...reasoning } = prev.reasoning;
-      return { streaming, reasoning };
+      const { [threadId]: _activeTurn, ...remainingActiveTurns } = prev.activeTurns;
+      const activeTurns = clearTurn ? remainingActiveTurns : prev.activeTurns;
+      return { streaming, reasoning, activeTurns };
     });
   };
   const flushDeltas = () => {
@@ -1282,7 +1288,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (d.text) streaming[threadId] = (streaming[threadId] ?? "") + d.text;
         if (d.reasoning) reasoning[threadId] = (reasoning[threadId] ?? "") + d.reasoning;
       }
-      return { streaming, reasoning };
+      return { ...prev, streaming, reasoning };
     });
   };
 
@@ -1902,7 +1908,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           } else if (event.type === "turn.completed") {
             // flush any buffered tail before clearing so no tokens are lost
             flushDeltas();
-            clearStream(event.threadId);
+            clearStream(event.threadId, true);
+          } else if (
+            event.turnId &&
+            (event.type === "turn.started" || event.type === "item.started" || event.type === "request.opened")
+          ) {
+            setStream((prev) => prev.activeTurns[event.threadId] === event.turnId
+              ? prev
+              : { ...prev, activeTurns: { ...prev.activeTurns, [event.threadId]: event.turnId } });
           }
           break;
         }

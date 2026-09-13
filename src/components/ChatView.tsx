@@ -17,6 +17,8 @@ import {
   PinOff,
   RefreshCw,
   Search,
+  ShieldCheck,
+  Terminal,
   Webhook,
   X,
 } from "lucide-react";
@@ -62,6 +64,13 @@ import {
   tailWindowStart,
 } from "@/lib/transcript-window";
 import { timelineEvents } from "@/lib/taskTimeline";
+import {
+  commandRunCounts,
+  commandRunRows,
+  currentCommand,
+  hasPendingApproval,
+  type CommandRunRow,
+} from "@/lib/command-runs";
 
 /** Long user messages collapse behind a fade so pasted walls of text don't
  * bury the conversation; bots get full markdown. */
@@ -545,6 +554,99 @@ function ActivityChip({ message }: { message: Message }) {
   );
 }
 
+function approvalOutcome(message: Message): string {
+  switch (message.card?.answered) {
+    case "allow": return "Allowed once";
+    case "deny": return "Denied";
+    case "unavailable": return "Not run";
+    default: return "Approval requested";
+  }
+}
+
+/** During an active turn, completed tool history stays out of the way. Only
+ * the command that is actually running is visible; the settled group replaces
+ * it when the turn finishes. */
+function CurrentCommandRow({ message }: { message: Message }) {
+  if (!message.tool) return null;
+  return (
+    <div className="flex min-w-0 items-center gap-2 py-1.5 text-[13px] text-ink-secondary" role="status" aria-live="polite">
+      <Loader2 size={13} className="shrink-0 animate-spin text-accent" aria-hidden="true" />
+      <span className="truncate font-mono">{message.tool.name}</span>
+    </div>
+  );
+}
+
+function CommandRunGroup({ run, focusedMessageId }: { run: CommandRunRow; focusedMessageId?: string }) {
+  const [open, setOpen] = useState(false);
+  const counts = commandRunCounts(run.messages);
+  const containsFocus = Boolean(focusedMessageId && run.messages.some((message) => message.id === focusedMessageId));
+  useEffect(() => {
+    if (containsFocus) setOpen(true);
+  }, [containsFocus, focusedMessageId]);
+
+  const actionLabel = `${counts.actions} ${counts.actions === 1 ? "action" : "actions"}`;
+  const approvalLabel = counts.approvals > 0
+    ? ` · ${counts.approvals} ${counts.approvals === 1 ? "approval" : "approvals"}`
+    : "";
+
+  return (
+    <div className="flex justify-start">
+      <div className="w-full max-w-[840px] overflow-hidden rounded-xl border border-hairline/40 bg-panel">
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+          className="flex w-full min-w-0 items-center gap-2 px-3 py-2.5 text-left text-[13px] text-ink-secondary hover:bg-raised/60 hover:text-ink"
+        >
+          <ChevronRight size={14} className={cn("shrink-0 transition-transform", open && "rotate-90")} aria-hidden="true" />
+          <Terminal size={14} className="shrink-0" aria-hidden="true" />
+          <span className="min-w-0 flex-1 truncate">
+            <span className="font-medium text-ink">Run command</span>
+            <span> · {actionLabel}{approvalLabel}</span>
+          </span>
+          <span className={cn("flex shrink-0 items-center gap-1", counts.failed ? "text-danger" : "text-success")}>
+            {counts.failed ? <X size={13} aria-hidden="true" /> : <Check size={13} aria-hidden="true" />}
+            {counts.failed ? "Failed" : "Completed"}
+          </span>
+        </button>
+        {open && (
+          <div className="border-t border-hairline/40 bg-inset/45">
+            {run.messages.map((message, index) => (
+              <div key={message.id} className="contents" data-mid={message.id}>
+                <div className={cn(
+                  "grid grid-cols-[18px_minmax(0,1fr)_auto] items-start gap-2 px-3 py-2.5",
+                  index < run.messages.length - 1 && "border-b border-hairline/30",
+                )}>
+                  {message.kind === "options" ? (
+                    <ShieldCheck size={14} className={cn("mt-0.5", message.card?.answered === "deny" ? "text-danger" : "text-ink-secondary")} aria-hidden="true" />
+                  ) : message.tool?.ok === false ? (
+                    <X size={14} className="mt-0.5 text-danger" aria-hidden="true" />
+                  ) : message.tool?.ok === undefined ? (
+                    <Clock size={14} className="mt-0.5 text-ink-secondary" aria-hidden="true" />
+                  ) : (
+                    <Check size={14} className="mt-0.5 text-success" aria-hidden="true" />
+                  )}
+                  <div className="min-w-0">
+                    <div className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-relaxed text-ink">
+                      {message.kind === "options" ? message.card?.subtitle : message.tool?.name}
+                    </div>
+                    {message.kind === "options" && message.card?.tool && (
+                      <div className="mt-0.5 text-[11px] text-ink-secondary">{message.card.tool}</div>
+                    )}
+                  </div>
+                  <span className="text-[11px] text-ink-secondary">
+                    {message.kind === "options" ? approvalOutcome(message) : message.tool?.ok === false ? "Failed" : "Completed"}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ScreenFrame({ png, mime }: { png: string; mime?: string }) {
   return (
     <div className="flex justify-start">
@@ -598,6 +700,7 @@ const MessagesList = memo(function MessagesList({
   bot,
   messages,
   transcript,
+  activeTurnId,
   editingId,
   canRetryLast,
   engine,
@@ -610,6 +713,8 @@ const MessagesList = memo(function MessagesList({
   messages: Message[];
   /** Active-branch messages, including ones outside the mounted window. */
   transcript: Message[];
+  /** Provider turn currently in flight for this thread. */
+  activeTurnId?: string;
   editingId: string | null;
   canRetryLast: boolean;
   /** This bot's engine, for rendering setup help on a `setup` error. */
@@ -619,7 +724,13 @@ const MessagesList = memo(function MessagesList({
   onRegenerate: () => void;
   onReply: (message: Message) => void;
 }) {
-  const { dispatch } = useStore();
+  const { state, dispatch } = useStore();
+  const rows = useMemo(() => commandRunRows(messages), [messages]);
+  const fallbackActiveTurnId = bot.busy
+    ? [...rows].reverse().find((row): row is CommandRunRow => row.kind === "command-run" && Boolean(currentCommand(row.messages) || hasPendingApproval(row.messages)))?.turnId
+    : undefined;
+  const liveTurnId = activeTurnId ?? fallbackActiveTurnId;
+  let previousRenderedAt: number | undefined;
   return (
     <>
       {messages.length === 0 && !bot.busy && (
@@ -636,10 +747,25 @@ const MessagesList = memo(function MessagesList({
           </div>
         </div>
       )}
-      {messages.map((m, i) => {
-        const prev = messages[i - 1];
-        const newDay = !prev || new Date(prev.at).toDateString() !== new Date(m.at).toDateString();
+      {rows.map((entry) => {
+        const m = entry.kind === "message" ? entry.message : entry.messages.at(-1)!;
         const row = (() => {
+          if (entry.kind === "command-run") {
+            if (bot.busy && entry.turnId === liveTurnId) {
+              const pendingApproval = entry.messages.find(
+                (message) =>
+                  message.kind === "options" &&
+                  message.card?.requestId &&
+                  message.card.tool &&
+                  !message.card.answered &&
+                  !message.card.dismissed,
+              );
+              if (pendingApproval) return <ApprovalCard bot={bot} message={pendingApproval} />;
+              const current = currentCommand(entry.messages);
+              return current ? <CurrentCommandRow message={current} /> : null;
+            }
+            return <CommandRunGroup run={entry} focusedMessageId={state.focusMessage?.messageId} />;
+          }
           switch (m.kind) {
             case "secret":
               return m.secret ? <SecretRequestCard botId={bot.id} threadId={bot.threadId} message={m} /> : null;
@@ -681,8 +807,14 @@ const MessagesList = memo(function MessagesList({
           }
         })();
         if (!row) return null;
+        const newDay = previousRenderedAt === undefined || new Date(previousRenderedAt).toDateString() !== new Date(m.at).toDateString();
+        previousRenderedAt = m.at;
         return (
-          <div key={m.id} className="contents" data-mid={m.id}>
+          <div
+            key={entry.kind === "command-run" ? `run:${entry.turnId}` : m.id}
+            className="contents"
+            data-mid={entry.kind === "message" ? m.id : undefined}
+          >
             {newDay && <DaySeparator at={m.at} />}
             {row}
           </div>
@@ -1026,7 +1158,7 @@ export function ChatView({ bot }: { bot: Bot }) {
         ref={scrollRef}
         className="flex-1 overflow-y-auto px-5 [overflow-anchor:none]"
         onWheel={(e) => {
-          if (e.deltaY < 0) setBottomFollow(false);
+          if (e.deltaY < 0 && e.currentTarget.scrollHeight > e.currentTarget.clientHeight) setBottomFollow(false);
           else if (atEnd()) setBottomFollow(true);
         }}
         onTouchStart={(e) => (touchY.current = e.touches[0]?.clientY ?? 0)}
@@ -1080,6 +1212,7 @@ export function ChatView({ bot }: { bot: Bot }) {
             bot={bot}
             messages={windowedMessages}
             transcript={messages}
+            activeTurnId={stream.activeTurns[bot.threadId]}
             editingId={editingId}
             canRetryLast={!bot.busy && Boolean(lastUserMessage)}
             engine={state.instances.find((i) => i.instanceId === bot.modelSelection.instanceId)}

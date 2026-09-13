@@ -86,6 +86,9 @@ export interface Message {
   executionReport?: string;
   artifacts?: Array<{ label: string; path: string; threadId: string }>;
   id: string;
+  /** Provider turn that produced this runtime projection. Used by the
+   * direct-chat UI to collapse tool activity without guessing boundaries. */
+  turnId?: string;
   role: "bot" | "user";
   kind: "text" | "options" | "activity" | "screen" | "connector" | "secret";
   text?: string;
