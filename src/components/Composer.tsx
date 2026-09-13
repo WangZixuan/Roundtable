@@ -1,7 +1,7 @@
 import { track } from "@/lib/analytics";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, Check, Clock, Hand, Mic, Paperclip, ShieldCheck, Square, Users, X } from "lucide-react";
-import { useStore, visibleMessages, type Bot, type Group, type Message } from "@/state/store";
+import { ArrowUp, Check, Clock, Folder, FolderOpen, Hand, Lock, Mic, Paperclip, ShieldCheck, Square, Users, X } from "lucide-react";
+import { api, useStore, visibleMessages, type Bot, type Group, type Message } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { useComposerDraft } from "@/lib/drafts";
 import { MausAvatar } from "./Avatar";
@@ -19,6 +19,141 @@ import { normalizeState } from "@/lib/mascot";
 import { PendingApprovalActions, PendingApprovalPanel, pendingApprovals } from "./PendingApproval";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { ReplyQuote } from "./ReplyQuote";
+import { ModelPicker } from "./ModelPicker";
+import { shortPath } from "@/lib/short-path";
+
+function folderName(path: string): string {
+  return path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || path;
+}
+
+/** Per-task folders cannot move after the first turn, because sessions are
+ * keyed to their initial workspace. Cloud agents do not expose local paths. */
+function ComposerWorkingFolder({ bot }: { bot: Bot }) {
+  const { capabilities } = useDesktopCapabilities();
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const task = bot.tasks?.find((candidate) => candidate.threadId === bot.threadId);
+  const pinned = task?.cwd;
+  const locked = pinned !== undefined;
+  const shownCwd = locked ? pinned ?? undefined : bot.cwd;
+  const canPick = Boolean(window.ogb?.pickFolder);
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (rootRef.current && !event.composedPath().includes(rootRef.current)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("mousedown", closeOnOutsideClick);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("mousedown", closeOnOutsideClick);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  const save = async (cwd: string | null) => {
+    setSaving(true);
+    setError(null);
+    try {
+      await api(`/api/bots/${bot.id}`, { method: "PATCH", body: JSON.stringify({ cwd }) });
+      setDraft(null);
+      setOpen(false);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const pick = async () => {
+    const chosen = await window.ogb?.pickFolder?.(bot.cwd);
+    if (chosen) await save(chosen);
+  };
+
+  if (locked) {
+    return (
+      <div
+        className="flex max-w-[180px] items-center gap-1.5 rounded-full border border-hairline/30 bg-inset/60 px-2.5 py-1 text-[12.5px] text-ink-secondary"
+        title={shownCwd ? `Fixed for this task: ${shownCwd}` : "Fixed for this task: private bot workspace"}
+      >
+        <Lock size={12} className="shrink-0" aria-hidden="true" />
+        <span className="min-w-0 truncate font-mono">{shownCwd ? folderName(shortPath(shownCwd, capabilities.host.homeDir)) : "Private workspace"}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div ref={rootRef} className="relative flex items-center">
+      <button
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => {
+          setError(null);
+          setOpen((current) => !current);
+        }}
+        className="flex max-w-[180px] items-center gap-1.5 rounded-full border border-hairline/20 bg-transparent px-2.5 py-1 text-[12.5px] text-ink-secondary hover:bg-raised hover:text-ink"
+        title={bot.cwd ? `Working folder: ${bot.cwd}` : "Choose working folder"}
+      >
+        <Folder size={13} className="shrink-0" aria-hidden="true" />
+        <span className="min-w-0 truncate font-mono">{bot.cwd ? folderName(shortPath(bot.cwd, capabilities.host.homeDir)) : "Working folder"}</span>
+      </button>
+      {open && (
+        <div
+          role="dialog"
+          aria-label="Working folder"
+          className="absolute bottom-full left-0 z-30 mb-2 w-80 rounded-xl border border-hairline/40 bg-raised p-3 shadow-lg"
+        >
+          <div className="text-[13px] font-medium text-ink">Working folder</div>
+          <div className="mt-0.5 text-[12px] text-ink-secondary">New tasks run shell and file tools here.</div>
+          {canPick ? (
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void pick()}
+                disabled={saving}
+                className="flex items-center gap-1.5 rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-50"
+              >
+                <FolderOpen size={14} /> Choose…
+              </button>
+              {bot.cwd && (
+                <button type="button" onClick={() => void save(null)} disabled={saving} className="px-2 py-2 text-[13px] text-ink-secondary hover:text-ink disabled:opacity-50">
+                  Clear
+                </button>
+              )}
+            </div>
+          ) : (
+            <form
+              className="mt-3 flex items-center gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void save((draft ?? bot.cwd ?? "").trim() || null);
+              }}
+            >
+              <input
+                autoFocus
+                value={draft ?? bot.cwd ?? ""}
+                onChange={(event) => setDraft(event.target.value)}
+                placeholder="Private workspace — or an absolute path"
+                className="min-w-0 flex-1 rounded-lg border border-hairline/40 bg-inset px-2.5 py-2 font-mono text-[12px] text-ink placeholder:text-ink-secondary focus:outline-none focus:border-hairline"
+              />
+              <button type="submit" disabled={saving || draft === null} className="rounded-lg bg-control px-2.5 py-2 text-[12px] text-ink hover:bg-raised-hover disabled:opacity-50">
+                Save
+              </button>
+            </form>
+          )}
+          {error && <div className="mt-2 text-[12px] text-danger">{error}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** The active @mention query at the caret: the text between an `@` that
  * starts a word and the caret. null = no mention being typed. */
@@ -496,11 +631,13 @@ export function Composer({
               {permissionBots.length > 0 && (
                 <PermissionModeSelector bots={permissionBots} targetName={permissionTargetName} onSetAuto={setAuto} />
               )}
+              {bot && bot.computer !== "cloud" && <ComposerWorkingFolder bot={bot} />}
+              {bot && <ModelPicker bot={bot} placement="up" />}
             </div>
           )}
           <textarea
           ref={inputRef}
-          rows={1}
+          rows={2}
           value={text}
           onChange={(e) => {
             setText(e.target.value);
@@ -598,7 +735,7 @@ export function Composer({
                   : `Message ${bot?.name ?? ""}`
           }
           aria-label={`Message ${group ? group.name : (bot?.name ?? "")}`}
-            className="col-span-full row-start-1 max-h-60 min-h-[36px] w-full resize-none self-center bg-transparent px-1 pb-0 pt-2 text-[15px] leading-6 text-ink placeholder:text-ink-secondary focus:outline-none"
+            className="col-span-full row-start-1 max-h-60 min-h-[56px] w-full resize-none self-center bg-transparent px-1 pb-0 pt-2 text-[15px] leading-6 text-ink placeholder:text-ink-secondary focus:outline-none"
           />
           <div className="col-start-3 row-start-2 mt-1 flex items-center gap-1">
           {busy && !locked && (

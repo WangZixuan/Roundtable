@@ -9,16 +9,13 @@ import {
   ChevronRight,
   Bug,
   Clock,
-  Folder,
   ListTree,
   Loader2,
   MessageSquareReply,
-  MoreHorizontal,
   Pin,
   PinOff,
   RefreshCw,
   Search,
-  Square,
   Webhook,
   X,
 } from "lucide-react";
@@ -49,13 +46,12 @@ import { ReplyQuote } from "./ReplyQuote";
 import { ConnectorCard } from "./ConnectorCard";
 import { SecretRequestCard } from "./SecretRequestCard";
 import { AttachedImageGallery } from "./AttachmentPreview";
-import { ModelPicker } from "./ModelPicker";
 import { RenameTitle } from "./RenameTitle";
 import { TaskPicker } from "./TaskPicker";
 import { CallOverlay } from "./CallView";
 import { BotDelivery } from "./BotDelivery";
 import { cn } from "@/lib/cn";
-import { COMPACT_BUBBLE, COMPACT_SQUARE } from "@/lib/compact-chip";
+import { COMPACT_SQUARE } from "@/lib/compact-chip";
 import { useFocusMessage } from "@/lib/focus-message";
 import { webhookMessageView } from "@/lib/webhook-message";
 import { splitAttachedImages } from "@/lib/composer-attachments";
@@ -890,28 +886,9 @@ export function ChatView({ bot }: { bot: Bot }) {
   const mascotMotion = state.mascotMotion?.botId === bot.id ? state.mascotMotion : null;
   const currentTask = bot.tasks?.find((task) => task.threadId === bot.threadId);
   const [findOpen, setFindOpen] = useState(false);
-  const [contextOpen, setContextOpen] = useState(false);
-  const contextRef = useRef<HTMLDivElement>(null);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   useEffect(() => setFindOpen(false), [bot.threadId]);
-  useEffect(() => setContextOpen(false), [bot.threadId]);
   useEffect(() => setReplyTo(null), [bot.threadId]);
-  useEffect(() => {
-    if (!contextOpen) return;
-    const onMouseDown = (event: MouseEvent) => {
-      const target = event.target instanceof Node ? event.target : null;
-      if (!contextRef.current?.contains(target)) setContextOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setContextOpen(false);
-    };
-    window.addEventListener("mousedown", onMouseDown);
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("mousedown", onMouseDown);
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [contextOpen]);
   useEffect(() => {
     const onFind = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
@@ -1157,70 +1134,10 @@ export function ChatView({ bot }: { bot: Bot }) {
           >
             <Search size={18} />
           </button>
-          {bot.busy && (
-            <button
-              onClick={() => dispatch({ type: "interrupt", botId: bot.id })}
-              className={cn(
-                "flex items-center gap-1.5 rounded-full border border-hairline/40 bg-raised/60 px-2.5 py-1 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink",
-                COMPACT_BUBBLE,
-              )}
-              title="Stop this turn"
-            >
-              <Square size={12} className="fill-current" />
-              <span className="@max-4xl/chathead:hidden">Stop</span>
-            </button>
-          )}
           <TaskPicker bot={bot} />
-          <ModelPicker bot={bot} />
-          <div ref={contextRef} className="relative">
-            <button
-              type="button"
-              onClick={() => setContextOpen((open) => !open)}
-              aria-expanded={contextOpen}
-              aria-haspopup="dialog"
-              aria-label="Conversation context"
-              title="Conversation context"
-              className={cn(
-                "flex items-center justify-center rounded-md p-1.5 hover:bg-raised",
-                contextOpen ? "text-accent" : "text-ink-secondary hover:text-ink",
-              )}
-            >
-              <MoreHorizontal size={18} />
-            </button>
-            {contextOpen && (
-              <div
-                role="dialog"
-                aria-label="Conversation context"
-                className="absolute right-0 top-full z-50 mt-2 w-[300px] rounded-xl border border-hairline/50 bg-card p-3 shadow-2xl shadow-black/40"
-              >
-                <div className="px-1 pb-2 text-[11px] font-medium uppercase tracking-wide text-ink-secondary">
-                  Conversation context
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <UsageChip bot={bot} />
-                  <WorkingFolderChip bot={bot} />
-                </div>
-                <button
-                  onClick={() => {
-                    dispatch({ type: "toggleInspector" });
-                    setContextOpen(false);
-                  }}
-                  aria-pressed={state.inspectorOpen}
-                  className={cn(
-                    "mt-2 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-[12.5px] hover:bg-raised",
-                    state.inspectorOpen ? "text-accent" : "text-ink-secondary hover:text-ink",
-                  )}
-                  title="Runtime events and raw protocol for this thread"
-                >
-                  <Bug size={15} />
-                  <span>Inspector</span>
-                  <span className="ml-auto text-[11px] text-ink-secondary/70">
-                    {state.inspectorOpen ? "Open" : "Protocol details"}
-                  </span>
-                </button>
-              </div>
-            )}
-          </div>
+          <ProfileButton />
+          <InspectorButton open={state.inspectorOpen} onClick={() => dispatch({ type: "toggleInspector" })} />
+          <UsageChip bot={bot} />
         </div>
       </div>
 
@@ -1406,26 +1323,36 @@ function UsageChip({ bot }: { bot: Bot }) {
   );
 }
 
-/** The folder this task's tools run in — quiet unless it's somewhere other
- * than home. Shows the pinned task folder when there is one, else the bot's
- * folder a first turn would pin. Click opens bot settings to change it. */
-function WorkingFolderChip({ bot }: { bot: Bot }) {
+function ProfileButton() {
   const { dispatch } = useStore();
-  const task = bot.tasks?.find((t) => t.threadId === bot.threadId);
-  const folder = task?.cwd === undefined ? bot.cwd : (task.cwd ?? undefined);
-  if (!folder) return null;
-  const name = folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || folder;
   return (
     <button
       onClick={() => dispatch({ type: "toggleSettings", open: true })}
       className={cn(
-        "flex max-w-[180px] items-center gap-1.5 rounded-full border border-hairline/40 bg-raised/60 px-2.5 py-1 text-[12.5px] text-ink-secondary hover:bg-raised hover:text-ink",
+        "rounded-full border border-hairline/40 bg-raised/60 px-2.5 py-1 text-[12.5px] text-ink-secondary hover:bg-raised hover:text-ink",
         COMPACT_SQUARE,
       )}
-      title={`Working folder: ${folder}`}
+      title="Profile"
     >
-      <Folder size={12} className="@max-4xl/chathead:size-[14px]" />
-      <span className="truncate font-mono @max-4xl/chathead:hidden">{name}</span>
+      Profile
+    </button>
+  );
+}
+
+function InspectorButton({ open, onClick }: { open: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={open}
+      className={cn(
+        "flex items-center gap-1.5 rounded-full border border-hairline/40 bg-raised/60 px-2.5 py-1 text-[12.5px] hover:bg-raised",
+        open ? "text-accent" : "text-ink-secondary hover:text-ink",
+        COMPACT_SQUARE,
+      )}
+      title="Runtime events and raw protocol for this thread"
+    >
+      <Bug size={14} />
+      <span className="@max-4xl/chathead:hidden">Inspector</span>
     </button>
   );
 }

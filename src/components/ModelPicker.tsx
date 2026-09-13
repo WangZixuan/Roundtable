@@ -97,6 +97,7 @@ export function ModelPicker({
   className,
   contained = false,
   label,
+  placement = "down",
 }: {
   bot: Bot;
   className?: string;
@@ -104,6 +105,7 @@ export function ModelPicker({
    * narrow parent (the Agent profile sidebar). */
   contained?: boolean;
   label?: ReactNode;
+  placement?: "up" | "down";
 }) {
   const { state, dispatch, refreshInstances } = useStore();
   const [open, setOpen] = useState(false);
@@ -115,8 +117,12 @@ export function ModelPicker({
 
   const selection = bot.modelSelection;
   const active = state.instances.find((instance) => instance.instanceId === selection.instanceId);
+  const selectionIsAvailable = Boolean(active?.models.options.some((option) => option.id === selection.model));
+  // An agent is configured against one provider. Do not offer another
+  // provider's catalog here: changing providers belongs in agent setup.
+  const configuredInstances = active ? [active] : [];
   const railInstance =
-    state.instances.find((instance) => instance.instanceId === (railId ?? selection.instanceId)) ?? state.instances[0];
+    configuredInstances.find((instance) => instance.instanceId === (railId ?? selection.instanceId)) ?? configuredInstances[0];
 
   useEffect(() => {
     if (open) void refreshInstances();
@@ -226,11 +232,15 @@ export function ModelPicker({
         // resolved engine keeps its label — the mark is what would hide it)
         !contained && active && COMPACT_SQUARE,
       )}
-      title={active ? `${active.displayName} · ${modelLabel(active, selection.model)}` : selection.model}
+      title={
+        active
+          ? `${active.displayName} · ${modelLabel(active, selection.model)}${selectionIsAvailable ? "" : " (unavailable)"}`
+          : `${selection.model} (provider unavailable)`
+      }
     >
       {active && <ProviderMark driverKind={active.driverKind} size={14} />}
       <span className={cn("max-w-[160px] truncate", !contained && active && "@max-4xl/chathead:hidden")}>
-        {modelLabel(active, selection.model)}
+        {selectionIsAvailable ? modelLabel(active, selection.model) : `${modelLabel(active, selection.model)} (unavailable)`}
       </span>
       <ChevronDown
         size={14}
@@ -263,12 +273,15 @@ export function ModelPicker({
             "flex overflow-hidden rounded-2xl border border-hairline/50 bg-card",
             contained
               ? "relative mt-3 w-full max-h-[min(420px,50dvh)]"
-              : "absolute right-0 top-full z-30 mt-2 w-[380px] max-h-[min(480px,calc(100dvh-7rem))] shadow-2xl shadow-black/50",
+              : cn(
+                  "absolute right-0 z-30 w-[380px] max-h-[min(480px,calc(100dvh-7rem))] shadow-2xl shadow-black/50",
+                  placement === "up" ? "bottom-full mb-2" : "top-full mt-2",
+                ),
           )}
         >
           <div className="flex w-14 shrink-0 flex-col gap-1 overflow-y-auto border-r border-hairline/40 bg-panel p-2">
             {(() => {
-              const { subscription, custom: local } = splitEngineRail(state.instances);
+              const { subscription, custom: local } = splitEngineRail(configuredInstances);
               const railButton = (instance: InstanceInfo) => {
                 const selected = instance.instanceId === railInstance?.instanceId;
                 const attention = needsCli(instance) || needsSignIn(instance);
@@ -378,7 +391,7 @@ export function ModelPicker({
                           {shownOfficial.map(renderRow)}
                           {shownOfficial.length === 0 && (
                             <div className="px-2 py-5 text-center text-[12.5px] text-ink-secondary">
-                              Nothing matches “{query.trim()}”
+                              {query ? `Nothing matches “${query.trim()}”` : "No models are configured for this agent."}
                             </div>
                           )}
                           {!query && !showAll && official.length > compactOfficial.length && (
@@ -412,7 +425,7 @@ export function ModelPicker({
                           {rest.map(renderRow)}
                           {custom.length === 0 && (
                             <div className="mx-1 rounded-xl border border-dashed border-hairline/50 px-3 py-5 text-center">
-                              <div className="text-[12.5px] font-medium text-ink">No local models found</div>
+                              <div className="text-[12.5px] font-medium text-ink">No models are configured for this agent</div>
                               <div className="mt-1 text-[11.5px] leading-relaxed text-ink-secondary">
                                 Start oMLX, Ollama, Unsloth, LM Studio, or EXO, then reopen this picker.
                               </div>
@@ -455,7 +468,9 @@ export function ModelPicker({
                 )}
               </>
             ) : (
-              <div className="px-4 py-5 text-[13px] text-ink-secondary">No model providers are available.</div>
+              <div className="px-4 py-5 text-[13px] text-ink-secondary">
+                The selected provider is unavailable. Choose an available model in this agent&apos;s settings.
+              </div>
             )}
           </div>
         </div>
