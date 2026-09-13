@@ -324,12 +324,12 @@ body {
   height: 8px;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--color-scrollbar);
+  background: color-mix(in srgb, var(--color-scrollbar) 42%, white);
   border-radius: 4px;
 }
 /* the thumb was inert — it never acknowledged the pointer */
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-raised-hover);
+  background: color-mix(in srgb, var(--color-scrollbar) 48%, white);
 }
 ::-webkit-scrollbar-track {
   background: transparent;

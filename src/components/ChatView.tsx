@@ -891,6 +891,7 @@ export function ChatView({ bot }: { bot: Bot }) {
   // (browser scroll anchoring is disabled on this container).
   const preExpandHeight = useRef<number | null>(null);
   const pageState = state.messagePages[bot.threadId];
+  const canLoadEarlier = hiddenCount > 0 || pageState?.hasMore === true;
   const showEarlier = async () => {
     preExpandHeight.current = scrollRef.current?.scrollHeight ?? null;
     // expanding means reading scrollback — never let a mid-expand stream
@@ -1062,7 +1063,7 @@ export function ChatView({ bot }: { bot: Bot }) {
           const el = scrollRef.current;
           if (!el) return;
           const scrollTop = el.scrollTop;
-          if (scrollTop < 80 && pageState?.hasMore && !pageState.loading) void showEarlier();
+          if (scrollTop < 80 && canLoadEarlier && !pageState?.loading && (hiddenCount > 0 || !pageState?.error)) void showEarlier();
           const resume = shouldResumeBottomFollow({
             following: followRef.current,
             previousScrollTop: previousScrollTop.current,
@@ -1079,14 +1080,18 @@ export function ChatView({ bot }: { bot: Bot }) {
           aria-live="polite"
           aria-label={`Conversation with ${bot.name}`}
         >
-          {(hiddenCount > 0 || pageState?.hasMore) && (
+          {canLoadEarlier && pageState?.loading && (
+            <div className="flex justify-center pt-2 text-[12.5px] text-ink-secondary">
+              Loading earlier messages…
+            </div>
+          )}
+          {hiddenCount === 0 && pageState?.hasMore && pageState.error && (
             <div className="flex justify-center pt-2">
               <button
                 onClick={() => void showEarlier()}
-                disabled={pageState?.loading}
                 className="rounded-full border border-hairline/40 bg-panel px-3 py-1 text-[12.5px] text-ink-secondary hover:bg-raised hover:text-ink"
               >
-                {pageState?.loading ? "Loading earlier messages…" : "Show earlier messages"}
+                Retry loading earlier messages
               </button>
             </div>
           )}

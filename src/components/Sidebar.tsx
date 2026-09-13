@@ -154,7 +154,7 @@ function preview(bot: Bot): string {
         ? "Screen frame"
         : (last.text ?? "");
   if (!text) return "";
-  return `${last.role === "user" ? "You" : bot.name}: ${text}`;
+  return last.role === "user" ? `You: ${text}` : text;
 }
 
 interface MenuState {
