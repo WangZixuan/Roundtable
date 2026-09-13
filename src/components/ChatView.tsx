@@ -23,7 +23,6 @@ import {
 import { costCaption, formatTokens, formatUsd, hasFiniteCost, usageChip } from "@/lib/usage";
 import {
   useStore,
-  api,
   useStreaming,
   formatTime,
   messageVersions,
@@ -31,7 +30,6 @@ import {
   type Bot,
   type InstanceInfo,
   type Message,
-  type Task,
 } from "@/state/store";
 import { EngineSetup } from "./EngineSetup";
 import { BotAvatar, MausAvatar, STANDARD_BOT_AVATAR_SIZE } from "./Avatar";
@@ -88,122 +86,6 @@ function DaySeparator({ at }: { at: number }) {
       {dayLabel(at)} {formatTime(at)}
     </div>
   );
-}
-
-function taskGoal(messages: Message[]): string | null {
-  const firstRequest = messages.find(
-    (message) => message.role === "user" && message.kind === "text" && Boolean(message.text?.trim()),
-  );
-  if (!firstRequest?.text) return null;
-  const attached = splitAttachedImages(firstRequest.text);
-  const goal = (attached?.display ?? firstRequest.text).replace(/\s+/g, " ").trim();
-  return goal || null;
-}
-
-/** A task's first request is the durable, user-authored brief. We deliberately
- * do not invent a mutable summary that could drift from the transcript. */
-function TaskBrief({ task, messages, bot }: { task: Task | undefined; messages: Message[]; bot: Bot }) {
-  const goal = useMemo(() => taskGoal(messages), [messages]);
-  if (!task || !goal) return null;
-  const status =
-    bot.activity === "waiting-on-you"
-      ? "Needs your input"
-      : bot.busy
-        ? "Working"
-        : "Ready";
-  const turns = task.usage?.turns ?? 0;
-  return (
-    <details className="group mx-auto w-full max-w-[900px] px-5">
-      <summary className="flex cursor-pointer list-none items-center gap-2 rounded-lg px-2 py-1.5 text-[12.5px] text-ink-secondary hover:bg-raised/50 hover:text-ink">
-        <span className="shrink-0 font-medium">Task brief</span>
-        <span className="truncate text-ink-secondary/75">· {goal}</span>
-        <ChevronDown size={14} className="ml-auto shrink-0 transition-transform group-open:rotate-180" />
-      </summary>
-      <div className="mb-2 grid gap-3 border-l border-hairline/40 py-1 pl-3 text-[12.5px] sm:grid-cols-[minmax(0,1fr)_auto]">
-        <div className="min-w-0">
-          <div className="mb-0.5 text-[11px] font-medium uppercase tracking-wide text-ink-secondary/70">Goal</div>
-          <p className="text-ink-secondary">{goal}</p>
-        </div>
-        <div className="flex shrink-0 items-end gap-2 text-[11.5px] text-ink-secondary">
-          <span>{status}</span>
-          <span aria-hidden="true">·</span>
-          <span>{turns} {turns === 1 ? "turn" : "turns"}</span>
-          <span aria-hidden="true">·</span>
-          <span>{dayLabel(task.createdAt)}</span>
-        </div>
-      </div>
-      <TaskCheckpoint botId={bot.id} task={task} />
-    </details>
-  );
-}
-
-/** A deliberately small task-owned note. It complements the transcript rather
- * than replacing it, and is the only compact state injected into later turns. */
-function TaskCheckpoint({ botId, task }: { botId: string; task: Task }) {
-  const [editing, setEditing] = useState(false);
-  const [summary, setSummary] = useState(task.checkpoint?.summary ?? "");
-  const [nextStep, setNextStep] = useState(task.checkpoint?.nextStep ?? "");
-  const [status, setStatus] = useState<NonNullable<Task["checkpoint"]>["status"]>(task.checkpoint?.status ?? "active");
-  const [saved, setSaved] = useState(task.checkpoint);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setSaved(task.checkpoint);
-    if (!editing) {
-      setSummary(task.checkpoint?.summary ?? "");
-      setNextStep(task.checkpoint?.nextStep ?? "");
-      setStatus(task.checkpoint?.status ?? "active");
-    }
-  }, [task.checkpoint, editing]);
-
-  const save = async () => {
-    setError(null);
-    try {
-      const result = await api(`/api/bots/${botId}/tasks/${task.threadId}/checkpoint`, {
-        method: "PATCH",
-        body: JSON.stringify({ summary, nextStep, status }),
-      });
-      setSaved(result.task.checkpoint);
-      setEditing(false);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Could not save checkpoint");
-    }
-  };
-
-  if (!saved && !editing) {
-    return <button type="button" onClick={() => setEditing(true)} className="mb-2 ml-3 text-[12px] text-accent hover:underline">
-      Add a continuity checkpoint
-    </button>;
-  }
-
-  if (!editing) {
-    const statusLabel = saved?.status === "blocked" ? "Blocked" : saved?.status === "completed" ? "Completed" : "In progress";
-    return <div className="mb-2 ml-3 rounded-lg border border-hairline/40 bg-raised/20 px-3 py-2 text-[12.5px]">
-      <div className="flex items-center gap-2 text-ink-secondary">
-        <span className="font-medium text-ink">Continuity</span><span>·</span><span>{statusLabel}</span>
-        <button type="button" onClick={() => setEditing(true)} className="ml-auto text-accent hover:underline">Update</button>
-      </div>
-      {saved?.summary && <p className="mt-1 whitespace-pre-wrap text-ink-secondary">{saved.summary}</p>}
-      {saved?.nextStep && <p className="mt-1 text-ink-secondary"><span className="font-medium text-ink">Next:</span> {saved.nextStep}</p>}
-    </div>;
-  }
-
-  return <div className="mb-2 ml-3 rounded-lg border border-hairline/50 bg-raised/20 p-3 text-[12.5px]">
-    <div className="mb-2 flex items-center justify-between"><span className="font-medium text-ink">Continuity checkpoint</span><button type="button" onClick={() => setEditing(false)} className="text-ink-secondary hover:text-ink">Cancel</button></div>
-    <label className="block text-[11px] font-medium uppercase tracking-wide text-ink-secondary/70">Current state</label>
-    <textarea value={summary} onChange={(event) => setSummary(event.target.value)} maxLength={2000} rows={3} placeholder="What is true now, decisions made, and important constraints."
-      className="mt-1 w-full resize-y rounded-md border border-hairline/40 bg-inset px-2 py-1.5 text-ink outline-none focus:border-accent" />
-    <label className="mt-2 block text-[11px] font-medium uppercase tracking-wide text-ink-secondary/70">Next step</label>
-    <input value={nextStep} onChange={(event) => setNextStep(event.target.value)} maxLength={800} placeholder="The most useful next action."
-      className="mt-1 w-full rounded-md border border-hairline/40 bg-inset px-2 py-1.5 text-ink outline-none focus:border-accent" />
-    <div className="mt-2 flex items-center gap-2">
-      <select value={status} onChange={(event) => setStatus(event.target.value === "blocked" ? "blocked" : event.target.value === "completed" ? "completed" : "active")} className="rounded-md border border-hairline/40 bg-inset px-2 py-1.5 text-ink outline-none focus:border-accent">
-        <option value="active">In progress</option><option value="blocked">Blocked</option><option value="completed">Completed</option>
-      </select>
-      <button type="button" onClick={() => void save()} className="rounded-md bg-accent px-2.5 py-1.5 font-medium text-white hover:opacity-90">Save checkpoint</button>
-      {error && <span role="alert" className="text-danger">{error}</span>}
-    </div>
-  </div>;
 }
 
 function TaskTimeline({ messages, busy, activity }: { messages: Message[]; busy: boolean; activity?: Bot["activity"] }) {
@@ -1159,8 +1041,6 @@ export function ChatView({ bot }: { bot: Bot }) {
           dispatch({ type: "updateBot", botId: bot.id, patch: { pinnedMessageId: "" } })
         }
       />
-
-      <TaskBrief task={currentTask} messages={messages} bot={bot} />
 
       <TaskTimeline messages={messages} busy={bot.busy ?? false} activity={bot.activity} />
 
