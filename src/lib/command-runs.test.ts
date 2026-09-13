@@ -9,7 +9,7 @@ const message = (patch: Partial<Message> & Pick<Message, "id" | "kind">): Messag
 });
 
 describe("command run transcript rows", () => {
-  it("groups non-adjacent runtime rows by turn and places the group at the final runtime row", () => {
+  it("groups consecutive runtime rows but keeps sequences separated by assistant text", () => {
     const messages = [
       message({ id: "1", kind: "activity", turnId: "turn-a", tool: { name: "read a", ok: true } }),
       message({ id: "2", kind: "text", turnId: "turn-a", text: "I found it." }),
@@ -18,9 +18,9 @@ describe("command run transcript rows", () => {
     ];
 
     const rows = commandRunRows(messages);
-    expect(rows.map((row) => row.kind)).toEqual(["message", "command-run", "message"]);
-    expect(rows[1]).toMatchObject({ kind: "command-run", turnId: "turn-a" });
-    if (rows[1].kind === "command-run") expect(rows[1].messages.map((entry) => entry.id)).toEqual(["1", "3"]);
+    expect(rows.map((row) => row.kind)).toEqual(["command-run", "message", "command-run", "message"]);
+    if (rows[0].kind === "command-run") expect(rows[0].messages.map((entry) => entry.id)).toEqual(["1"]);
+    if (rows[2].kind === "command-run") expect(rows[2].messages.map((entry) => entry.id)).toEqual(["3"]);
   });
 
   it("leaves legacy, error, and communication activities as ordinary rows", () => {

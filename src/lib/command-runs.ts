@@ -30,36 +30,24 @@ export function isCommandRunMessage(message: Message): boolean {
   return message.kind === "options" && Boolean(message.card?.requestId && message.card.tool);
 }
 
-/** One group per provider turn, placed where that turn's final runtime row
- * occurred. Text may be interleaved between tool events, so adjacency is not
- * a reliable boundary. */
+/** Consecutive runtime rows share a compact group. Assistant text is a
+ * meaningful transcript boundary, so each command sequence remains beside
+ * the assistant message that introduced it rather than being merged across
+ * an entire provider turn. */
 export function commandRunRows(messages: Message[]): TranscriptRow[] {
-  const grouped = new Map<string, Message[]>();
-  const lastIndex = new Map<string, number>();
-
-  messages.forEach((message, index) => {
-    if (!isCommandRunMessage(message)) return;
-    const turnId = message.turnId;
-    if (!turnId) return;
-    const entries = grouped.get(turnId) ?? [];
-    entries.push(message);
-    grouped.set(turnId, entries);
-    lastIndex.set(turnId, index);
-  });
-
   const rows: TranscriptRow[] = [];
-  messages.forEach((message, index) => {
-    if (!isCommandRunMessage(message)) {
+  for (const message of messages) {
+    if (isCommandRunMessage(message) && message.turnId) {
+      const previous = rows.at(-1);
+      if (previous?.kind === "command-run" && previous.turnId === message.turnId) {
+        previous.messages.push(message);
+      } else {
+        rows.push({ kind: "command-run", turnId: message.turnId, messages: [message] });
+      }
+    } else {
       rows.push({ kind: "message", message });
-      return;
     }
-    const turnId = message.turnId;
-    if (!turnId) return;
-    if (lastIndex.get(turnId) === index) {
-      const runMessages = grouped.get(turnId);
-      if (runMessages) rows.push({ kind: "command-run", turnId, messages: runMessages });
-    }
-  });
+  }
   return rows;
 }
 
