@@ -915,7 +915,12 @@ export function GroupView({ group }: { group: Group }) {
             </div>
           )}
           {canLoadEarlier && pageState?.loading && (
-            <div className="flex justify-center pt-2 text-[12.5px] text-ink-secondary">
+            <div
+              className="flex items-center justify-center gap-2 pt-2 text-[12.5px] text-ink-secondary"
+              role="status"
+              aria-live="polite"
+            >
+              <Loader2 size={14} className="animate-spin" aria-hidden="true" />
               Loading earlier messages…
             </div>
           )}
