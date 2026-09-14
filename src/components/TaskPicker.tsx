@@ -49,22 +49,6 @@ export function TaskPicker({ bot }: { bot: Bot }) {
     };
   }, [open]);
 
-  // a bot that has only ever done one thing doesn't need a switcher yet —
-  // just the button that gives it a second context
-  if (tasks.length <= 1) {
-    return (
-      <button
-        onClick={() => dispatch({ type: "newTask", botId: bot.id })}
-        disabled={bot.busy}
-        title={bot.busy ? "Let this turn finish first" : "New task — a fresh context on this bot"}
-        aria-label="New task"
-        className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink disabled:opacity-40"
-      >
-        <Plus size={16} />
-      </button>
-    );
-  }
-
   const commitRename = (threadId: string) => {
     const title = draft.trim();
     setRenaming(null);
