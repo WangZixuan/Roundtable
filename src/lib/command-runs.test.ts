@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Message } from "@/state/store";
-import { commandRunCounts, commandRunRows, currentCommand, hasPendingApproval } from "./command-runs";
+import { commandRunCounts, commandRunRows, currentCommand, hasPendingApproval, isLiveCommandRun } from "./command-runs";
 
 const message = (patch: Partial<Message> & Pick<Message, "id" | "kind">): Message => ({
   role: "bot",
@@ -9,7 +9,7 @@ const message = (patch: Partial<Message> & Pick<Message, "id" | "kind">): Messag
 });
 
 describe("command run transcript rows", () => {
-  it("groups consecutive runtime rows but keeps sequences separated by assistant text", () => {
+  it("groups all bot sections from one turn into a single transcript block", () => {
     const messages = [
       message({ id: "1", kind: "activity", turnId: "turn-a", tool: { name: "read a", ok: true } }),
       message({ id: "2", kind: "text", turnId: "turn-a", text: "I found it." }),
@@ -18,9 +18,10 @@ describe("command run transcript rows", () => {
     ];
 
     const rows = commandRunRows(messages);
-    expect(rows.map((row) => row.kind)).toEqual(["command-run", "message", "command-run", "message"]);
-    if (rows[0].kind === "command-run") expect(rows[0].messages.map((entry) => entry.id)).toEqual(["1"]);
-    if (rows[2].kind === "command-run") expect(rows[2].messages.map((entry) => entry.id)).toEqual(["3"]);
+    expect(rows.map((row) => row.kind)).toEqual(["turn"]);
+    if (rows[0].kind === "turn") {
+      expect(rows[0].rows.map((row) => row.kind)).toEqual(["command-run", "message", "command-run", "message"]);
+    }
   });
 
   it("leaves legacy, error, and communication activities as ordinary rows", () => {
@@ -29,7 +30,9 @@ describe("command run transcript rows", () => {
       message({ id: "2", kind: "activity", turnId: "turn-a", tool: { name: "error: failed", ok: false } }),
       message({ id: "3", kind: "activity", turnId: "turn-a", tool: { name: "Messaged @QA" }, comm: { groupId: "g", withBotId: "b", withName: "QA", withColor: "blue" } }),
     ];
-    expect(commandRunRows(messages).every((row) => row.kind === "message")).toBe(true);
+    const rows = commandRunRows(messages);
+    expect(rows.some((row) => row.kind === "command-run")).toBe(false);
+    expect(rows.flatMap((row) => row.kind === "turn" ? row.rows : [row]).every((row) => row.kind === "message")).toBe(true);
   });
 
   it("counts actions and approvals and exposes only an unfinished current command", () => {
@@ -47,5 +50,17 @@ describe("command run transcript rows", () => {
     const pending = message({ id: "1", kind: "options", turnId: "turn-a", card: { title: "Approval needed", subtitle: "remove", options: [], requestId: "r", tool: "Bash" } });
     expect(hasPendingApproval([pending])).toBe(true);
     expect(commandRunCounts([{ ...pending, card: { ...pending.card!, answered: "deny" } }]).failed).toBe(false);
+  });
+
+  it("only marks the latest unresolved command sequence as live", () => {
+    const messages = [
+      message({ id: "1", kind: "activity", turnId: "turn-a", tool: { name: "old command" } }),
+      message({ id: "2", kind: "text", turnId: "turn-a", text: "Continuing." }),
+      message({ id: "3", kind: "activity", turnId: "turn-a", tool: { name: "new command" } }),
+    ];
+    const rows = commandRunRows(messages);
+    const nestedCommandRows = rows.flatMap((row) => row.kind === "turn" ? row.rows.filter((nested) => nested.kind === "command-run") : []);
+    expect(isLiveCommandRun(rows, nestedCommandRows[0], "turn-a")).toBe(false);
+    expect(isLiveCommandRun(rows, nestedCommandRows[1], "turn-a")).toBe(true);
   });
 });

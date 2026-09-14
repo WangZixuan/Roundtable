@@ -18,7 +18,6 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
-  Terminal,
   Webhook,
   X,
 } from "lucide-react";
@@ -69,6 +68,7 @@ import {
   commandRunRows,
   currentCommand,
   hasPendingApproval,
+  isLiveCommandRun,
   type CommandRunRow,
 } from "@/lib/command-runs";
 
@@ -318,6 +318,7 @@ function Bubble({
   bot,
   message,
   editing,
+  showToolbar = true,
   onCancelEdit,
   onSubmitEdit,
   replyTarget,
@@ -326,6 +327,7 @@ function Bubble({
   bot: Bot;
   message: Message;
   editing: boolean;
+  showToolbar?: boolean;
   onCancelEdit: () => void;
   onSubmitEdit: (text: string) => void;
   replyTarget?: Message;
@@ -360,7 +362,7 @@ function Bubble({
     <div className={cn("group animate-msg-in flex w-full flex-col", user ? "items-end" : "items-start")}>
       <div className={cn("flex w-full items-center gap-1.5", user ? "justify-end" : "flex-wrap justify-start")}>
         {user && <CopyButton text={visibleText} />}
-        {!user && (
+        {!user && showToolbar && (
           <button
             type="button"
             onClick={onReply}
@@ -371,7 +373,7 @@ function Bubble({
             <MessageSquareReply size={14} />
           </button>
         )}
-        <button
+        {showToolbar && <button
           onClick={() =>
             dispatch({
               type: "updateBot",
@@ -388,7 +390,7 @@ function Bubble({
           }
         >
           {bot.pinnedMessageId === message.id ? <PinOff size={14} /> : <Pin size={14} />}
-        </button>
+        </button>}
         <div
           className={cn(
             "rounded-2xl text-[15px] leading-relaxed",
@@ -462,19 +464,19 @@ function Bubble({
             </>
           )}
         </div>
-        {!user && (
+        {!user && showToolbar && (
           <div className="flex items-center gap-0.5 self-end pb-0.5">
             <CopyButton text={text} />
           </div>
         )}
-        <span
+        {showToolbar && <span
           className={cn(
             "self-end pb-1 text-[11px] tabular-nums text-ink-secondary/70 opacity-0 transition-opacity group-hover:opacity-100",
             user ? "order-first mr-1" : "ml-1",
           )}
         >
           {formatTime(message.at)}
-        </span>
+        </span>}
       </div>
       {/* busy-gated so a flag stranded by a server restart shows nothing */}
       {user && message.queued && bot.busy && (
@@ -483,7 +485,7 @@ function Bubble({
           <span>Queued — sends when this turn finishes</span>
         </div>
       )}
-      {versions.length > 1 && (
+      {showToolbar && versions.length > 1 && (
         <div className="mt-1 flex items-center gap-0.5 pr-1 text-[12px] text-ink-secondary">
           <button
             onClick={() => switchTo(versions[versionIndex - 1])}
@@ -599,7 +601,6 @@ function CommandRunGroup({ run, focusedMessageId }: { run: CommandRunRow; focuse
           className="flex w-full min-w-0 items-center gap-2 px-3 py-2.5 text-left text-[13px] text-ink-secondary hover:bg-raised/60 hover:text-ink"
         >
           <ChevronRight size={14} className={cn("shrink-0 transition-transform", open && "rotate-90")} aria-hidden="true" />
-          <Terminal size={14} className="shrink-0" aria-hidden="true" />
           <span className="min-w-0 flex-1 truncate">
             <span className="font-medium text-ink">Run command</span>
             <span> · {actionLabel}{approvalLabel}</span>
@@ -731,6 +732,60 @@ const MessagesList = memo(function MessagesList({
     : undefined;
   const liveTurnId = activeTurnId ?? fallbackActiveTurnId;
   let previousRenderedAt: number | undefined;
+  const renderRow = (entry: CommandRunRow | Extract<ReturnType<typeof commandRunRows>[number], { kind: "message" }>, showToolbar = true) => {
+    const m = entry.kind === "message" ? entry.message : entry.messages.at(-1)!;
+    if (entry.kind === "command-run") {
+      if (bot.busy && isLiveCommandRun(rows, entry, liveTurnId)) {
+        const pendingApproval = entry.messages.find(
+          (message) =>
+            message.kind === "options" &&
+            message.card?.requestId &&
+            message.card.tool &&
+            !message.card.answered &&
+            !message.card.dismissed,
+        );
+        if (pendingApproval) return <ApprovalCard bot={bot} message={pendingApproval} />;
+        const current = currentCommand(entry.messages);
+        return current ? <CurrentCommandRow message={current} /> : null;
+      }
+      return <CommandRunGroup run={entry} focusedMessageId={state.focusMessage?.messageId} />;
+    }
+    switch (m.kind) {
+      case "secret":
+        return m.secret ? <SecretRequestCard botId={bot.id} threadId={bot.threadId} message={m} /> : null;
+      case "connector":
+        return m.connector ? <ConnectorCard botId={bot.id} threadId={bot.threadId} message={m} /> : null;
+      case "options":
+        if (m.card?.requestId && m.card.tool) return <ApprovalCard bot={bot} message={m} />;
+        if (shouldHideOnboardingCard(m, transcript)) return null;
+        return <OptionCard botId={bot.id} message={m} />;
+      case "activity":
+        return m.tool?.name.startsWith("error:") ? (
+          <ErrorRow
+            message={m.tool.name.slice(6).trim()}
+            onRetry={m.id === messages.at(-1)?.id && canRetryLast ? onRegenerate : undefined}
+            setupInstance={m.tool.setup ? engine : undefined}
+          />
+        ) : (
+          <ActivityChip message={m} />
+        );
+      case "screen":
+        return m.png ? <ScreenFrame png={m.png} mime={m.mime} /> : null;
+      default:
+        return (
+          <Bubble
+            bot={bot}
+            message={m}
+            editing={editingId === m.id}
+            showToolbar={showToolbar}
+            onCancelEdit={onCancelEdit}
+            onSubmitEdit={(text) => onSubmitEdit(m.id, text)}
+            replyTarget={m.replyToId ? bot.messages.find((candidate) => candidate.id === m.replyToId) : undefined}
+            onReply={() => onReply(m)}
+          />
+        );
+    }
+  };
   return (
     <>
       {messages.length === 0 && !bot.busy && (
@@ -748,64 +803,24 @@ const MessagesList = memo(function MessagesList({
         </div>
       )}
       {rows.map((entry) => {
-        const m = entry.kind === "message" ? entry.message : entry.messages.at(-1)!;
-        const row = (() => {
-          if (entry.kind === "command-run") {
-            if (bot.busy && entry.turnId === liveTurnId) {
-              const pendingApproval = entry.messages.find(
-                (message) =>
-                  message.kind === "options" &&
-                  message.card?.requestId &&
-                  message.card.tool &&
-                  !message.card.answered &&
-                  !message.card.dismissed,
-              );
-              if (pendingApproval) return <ApprovalCard bot={bot} message={pendingApproval} />;
-              const current = currentCommand(entry.messages);
-              return current ? <CurrentCommandRow message={current} /> : null;
-            }
-            return <CommandRunGroup run={entry} focusedMessageId={state.focusMessage?.messageId} />;
-          }
-          switch (m.kind) {
-            case "secret":
-              return m.secret ? <SecretRequestCard botId={bot.id} threadId={bot.threadId} message={m} /> : null;
-            case "connector":
-              return m.connector ? <ConnectorCard botId={bot.id} threadId={bot.threadId} message={m} /> : null;
-            case "options":
-              // a live permission ask gets the approval box; questions keep
-              // the list card. The first-run quiz drops out once they talk.
-              if (m.card?.requestId && m.card.tool) {
-                return <ApprovalCard bot={bot} message={m} />;
-              }
-              if (shouldHideOnboardingCard(m, transcript)) return null;
-              return <OptionCard botId={bot.id} message={m} />;
-            case "activity":
-              // a failed turn is an error, not a tool run — render it as one
-              return m.tool?.name.startsWith("error:") ? (
-                <ErrorRow
-                  message={m.tool.name.slice(6).trim()}
-                  onRetry={m.id === messages.at(-1)?.id && canRetryLast ? onRegenerate : undefined}
-                  setupInstance={m.tool.setup ? engine : undefined}
-                />
-              ) : (
-                <ActivityChip message={m} />
-              );
-            case "screen":
-              return m.png ? <ScreenFrame png={m.png} mime={m.mime} /> : null;
-            default:
-              return (
-                <Bubble
-                  bot={bot}
-                  message={m}
-                  editing={editingId === m.id}
-                  onCancelEdit={onCancelEdit}
-                  onSubmitEdit={(text) => onSubmitEdit(m.id, text)}
-                  replyTarget={m.replyToId ? bot.messages.find((candidate) => candidate.id === m.replyToId) : undefined}
-                  onReply={() => onReply(m)}
-                />
-              );
-          }
-        })();
+        const lastEntry = entry.kind === "turn" ? entry.rows.at(-1)! : entry;
+        const m = lastEntry.kind === "message" ? lastEntry.message : lastEntry.messages.at(-1)!;
+        const row =
+          entry.kind === "turn" ? (
+            <div className="flex flex-col gap-1">
+              {entry.rows.map((turnEntry, index) => {
+                return (
+                  <div
+                    key={turnEntry.kind === "command-run" ? `run:${turnEntry.turnId}:${index}` : turnEntry.message.id}
+                    data-mid={turnEntry.kind === "message" ? turnEntry.message.id : undefined}
+                    className="contents"
+                  >
+                    {renderRow(turnEntry, index === entry.rows.length - 1)}
+                  </div>
+                );
+              })}
+            </div>
+          ) : renderRow(entry);
         if (!row) return null;
         const newDay = previousRenderedAt === undefined || new Date(previousRenderedAt).toDateString() !== new Date(m.at).toDateString();
         previousRenderedAt = m.at;

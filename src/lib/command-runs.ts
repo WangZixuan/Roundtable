@@ -11,7 +11,13 @@ export interface MessageRow {
   message: Message;
 }
 
-export type TranscriptRow = CommandRunRow | MessageRow;
+export interface TurnRow {
+  kind: "turn";
+  turnId: string;
+  rows: Array<CommandRunRow | MessageRow>;
+}
+
+export type TranscriptRow = TurnRow | CommandRunRow | MessageRow;
 
 export interface CommandRunCounts {
   actions: number;
@@ -35,7 +41,7 @@ export function isCommandRunMessage(message: Message): boolean {
  * the assistant message that introduced it rather than being merged across
  * an entire provider turn. */
 export function commandRunRows(messages: Message[]): TranscriptRow[] {
-  const rows: TranscriptRow[] = [];
+  const rows: Array<CommandRunRow | MessageRow> = [];
   for (const message of messages) {
     if (isCommandRunMessage(message) && message.turnId) {
       const previous = rows.at(-1);
@@ -48,7 +54,28 @@ export function commandRunRows(messages: Message[]): TranscriptRow[] {
       rows.push({ kind: "message", message });
     }
   }
-  return rows;
+
+  const grouped: TranscriptRow[] = [];
+  for (const row of rows) {
+    const turnId = row.kind === "command-run" ? row.turnId : row.message.turnId;
+    const previous = grouped.at(-1);
+    if (turnId && row.kind === "message" && row.message.role === "bot") {
+      if (previous?.kind === "turn" && previous.turnId === turnId) {
+        previous.rows.push(row);
+      } else {
+        grouped.push({ kind: "turn", turnId, rows: [row] });
+      }
+    } else if (turnId && row.kind === "command-run") {
+      if (previous?.kind === "turn" && previous.turnId === turnId) {
+        previous.rows.push(row);
+      } else {
+        grouped.push({ kind: "turn", turnId, rows: [row] });
+      }
+    } else {
+      grouped.push(row);
+    }
+  }
+  return grouped;
 }
 
 export function commandRunCounts(messages: Message[]): CommandRunCounts {
@@ -71,6 +98,23 @@ export function currentCommand(messages: Message[]): Message | undefined {
   return [...messages].reverse().find(
     (message) => message.kind === "activity" && message.tool && message.tool.ok === undefined,
   );
+}
+
+export function isLiveCommandRun(
+  rows: TranscriptRow[],
+  row: CommandRunRow,
+  liveTurnId: string | undefined,
+): boolean {
+  if (!liveTurnId || row.turnId !== liveTurnId || !currentCommand(row.messages)) return false;
+  const commandRows = rows.flatMap((candidate) =>
+    candidate.kind === "turn"
+      ? candidate.rows.filter((nested): nested is CommandRunRow => nested.kind === "command-run")
+      : candidate.kind === "command-run"
+        ? [candidate]
+        : [],
+  );
+  const latest = [...commandRows].reverse().find((candidate) => candidate.turnId === liveTurnId && currentCommand(candidate.messages));
+  return latest === row;
 }
 
 export function hasPendingApproval(messages: Message[]): boolean {
