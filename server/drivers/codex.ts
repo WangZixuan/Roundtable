@@ -55,6 +55,34 @@ const DENY_TIMEOUT_NOTE =
 
 type StdioMcpServer = { command: string; args: string[]; env: Record<string, string> };
 
+interface FileChangeItem {
+  path?: string | null;
+  filePath?: string | null;
+  file?: string | null;
+  filename?: string | null;
+  rawInput?: { path?: string | null };
+  changeType?: string | null;
+  operation?: string | null;
+  status?: string | null;
+}
+
+function firstText(values: Array<string | null | undefined>): string {
+  return values.find((value) => value?.trim())?.trim() ?? "";
+}
+
+function fileChangeTitle(item: FileChangeItem): string {
+  const path = firstText([item.path, item.filePath, item.file, item.filename, item.rawInput?.path]);
+  if (!path) return "edit";
+  const rawKind = firstText([item.changeType, item.operation, item.status]).toLowerCase();
+  const kind =
+    rawKind.includes("create") || rawKind.includes("add")
+      ? "Created"
+      : rawKind.includes("delete") || rawKind.includes("remove")
+        ? "Deleted"
+        : "Modified";
+  return `${kind} ${path}`;
+}
+
 function mountMcpServer(
   appServerArgs: string[],
   env: Record<string, string | undefined>,
@@ -339,7 +367,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
               item.type === "commandExecution"
                 ? String(item.command ?? "shell")
                 : item.type === "fileChange"
-                  ? "edit"
+                  ? fileChangeTitle(item)
                   : item.type === "mcpToolCall"
                     ? (item.tool ?? item.name ?? "mcp")
                     : item.type === "webSearch"
@@ -617,4 +645,3 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
   };
 },
 };
-

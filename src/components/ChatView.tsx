@@ -1,4 +1,4 @@
-import { Component, memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Component, Fragment, memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   ArrowDown,
@@ -10,6 +10,7 @@ import {
   Bug,
   Clock,
   CircleUserRound,
+  FilePenLine,
   ListTree,
   Loader2,
   MessageSquareReply,
@@ -64,6 +65,7 @@ import {
   tailWindowStart,
 } from "@/lib/transcript-window";
 import { timelineEvents } from "@/lib/taskTimeline";
+import { changedFilesFromTurnRows, type ChangedFile } from "@/lib/changed-files";
 import {
   commandRunCounts,
   commandRunRows,
@@ -649,6 +651,33 @@ function CommandRunGroup({ run, focusedMessageId }: { run: CommandRunRow; focuse
   );
 }
 
+function ChangedFilesCard({ files }: { files: ChangedFile[] }) {
+  if (files.length === 0) return null;
+  const label = `${files.length} changed ${files.length === 1 ? "file" : "files"}`;
+  return (
+    <div className="flex justify-start">
+      <section
+        className="w-full max-w-[840px] overflow-hidden rounded-xl border border-hairline/40 bg-panel"
+        aria-label={label}
+      >
+        <div className="flex items-center gap-2 border-b border-hairline/40 px-3 py-2.5 text-[13px] text-ink">
+          <FilePenLine size={14} className="shrink-0 text-ink-secondary" aria-hidden="true" />
+          <span className="font-medium">Changed files</span>
+          <span className="text-ink-secondary">· {files.length}</span>
+        </div>
+        <div className="divide-y divide-hairline/30 bg-inset/30">
+          {files.map((file) => (
+            <div key={`${file.kind}:${file.path}`} className="grid grid-cols-[86px_minmax(0,1fr)] gap-3 px-3 py-2 text-[12.5px]">
+              <span className="capitalize text-ink-secondary">{file.kind}</span>
+              <span className="truncate font-mono text-ink" title={file.path}>{file.path}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function ScreenFrame({ png, mime }: { png: string; mime?: string }) {
   return (
     <div className="flex justify-start">
@@ -806,22 +835,31 @@ const MessagesList = memo(function MessagesList({
       {rows.map((entry) => {
         const lastEntry = entry.kind === "turn" ? entry.rows.at(-1)! : entry;
         const m = lastEntry.kind === "message" ? lastEntry.message : lastEntry.messages.at(-1)!;
-        const row =
-          entry.kind === "turn" ? (
+        const row = (() => {
+          if (entry.kind !== "turn") return renderRow(entry);
+          const changedFiles = changedFilesFromTurnRows(entry.rows);
+          const changedFilesIndex = changedFiles.length > 0
+            ? entry.rows.findLastIndex((turnEntry) => turnEntry.kind === "message" && turnEntry.message.role === "bot" && turnEntry.message.kind === "text")
+            : -1;
+          return (
             <div className="flex flex-col gap-1">
               {entry.rows.map((turnEntry, index) => {
                 return (
-                  <div
-                    key={turnEntry.kind === "command-run" ? `run:${turnEntry.turnId}:${index}` : turnEntry.message.id}
-                    data-mid={turnEntry.kind === "message" ? turnEntry.message.id : undefined}
-                    className="contents"
-                  >
-                    {renderRow(turnEntry, index === entry.rows.length - 1)}
-                  </div>
+                  <Fragment key={turnEntry.kind === "command-run" ? `run:${turnEntry.turnId}:${index}` : turnEntry.message.id}>
+                    {index === changedFilesIndex && <ChangedFilesCard files={changedFiles} />}
+                    <div
+                      data-mid={turnEntry.kind === "message" ? turnEntry.message.id : undefined}
+                      className="contents"
+                    >
+                      {renderRow(turnEntry, index === entry.rows.length - 1)}
+                    </div>
+                  </Fragment>
                 );
               })}
+              {changedFilesIndex < 0 && <ChangedFilesCard files={changedFiles} />}
             </div>
-          ) : renderRow(entry);
+          );
+        })();
         if (!row) return null;
         const newDay = previousRenderedAt === undefined || new Date(previousRenderedAt).toDateString() !== new Date(m.at).toDateString();
         previousRenderedAt = m.at;
@@ -890,6 +928,7 @@ function PinnedBanner({
 export function ChatView({ bot }: { bot: Bot }) {
   const { state, dispatch, loadEarlierMessages } = useStore();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollbackTriggerRef = useRef<HTMLDivElement>(null);
 
   const stream = useStreaming();
   const streaming = stream.streaming[bot.threadId];
@@ -1034,6 +1073,27 @@ export function ChatView({ bot }: { bot: Bot }) {
       }
     }
   };
+  useEffect(() => {
+    const trigger = scrollbackTriggerRef.current;
+    const root = scrollRef.current;
+    if (!trigger || !root) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (
+          entry?.isIntersecting &&
+          canLoadEarlier &&
+          !pageState?.loading &&
+          !pageState?.error
+        ) {
+          loadingFullHistory.current = true;
+          void showEarlier();
+        }
+      },
+      { root, threshold: 0 },
+    );
+    observer.observe(trigger);
+    return () => observer.disconnect();
+  }, [canLoadEarlier, pageState?.error, pageState?.loading, showEarlier]);
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (preExpandHeight.current === null || !el) return;
@@ -1218,6 +1278,7 @@ export function ChatView({ bot }: { bot: Bot }) {
           aria-live="polite"
           aria-label={`Conversation with ${bot.name}`}
         >
+          <div ref={scrollbackTriggerRef} aria-hidden="true" className="h-px shrink-0" />
           {canLoadEarlier && pageState?.loading && (
             <div
               className="flex items-center justify-center gap-2 pt-2 text-[12.5px] text-ink-secondary"

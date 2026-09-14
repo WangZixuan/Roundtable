@@ -51,6 +51,31 @@ const COMPUTER_PROXY_PATH = SPAWNED_PROXIES.computer;
 import { appendNative } from "../native.ts";
 import { SPAWNED_PROXIES } from "../../proxy-paths.ts";
 
+interface AcpToolUpdate {
+  title?: string | null;
+  path?: string | null;
+  rawInput?: {
+    command?: string | null;
+    path?: string | null;
+    filePath?: string | null;
+    file?: string | null;
+    filename?: string | null;
+  };
+}
+
+function firstText(values: Array<string | null | undefined>): string {
+  return values.find((value) => value?.trim())?.trim() ?? "";
+}
+
+function acpToolTitle(update: AcpToolUpdate): string {
+  const rawInput = update.rawInput ?? {};
+  const command = firstText([rawInput.command]);
+  if (command) return command;
+  const path = firstText([rawInput.path, rawInput.filePath, rawInput.file, rawInput.filename, update.path]);
+  if (path) return `${firstText([update.title]) || "Modified"} ${path}`;
+  return update.title ?? "tool";
+}
+
 export interface AcpConfig {
   cli: string;
   fullAuto: boolean;
@@ -457,7 +482,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                 type: "item.started",
                 itemType: "tool",
                 itemId: u.toolCallId,
-                title: String(u.rawInput?.command ?? u.title ?? "tool").slice(0, 80),
+                title: acpToolTitle(u).slice(0, 240),
               });
               break;
             }
@@ -752,4 +777,3 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
     },
   };
 }
-
