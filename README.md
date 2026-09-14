@@ -46,6 +46,21 @@ pnpm dev:desktop
 
 Use `pnpm dev` when you only need the browser renderer. The complete desktop development path is `pnpm dev:desktop`.
 
+## Choose a bot's provider and model
+
+Open the model picker beside the message box or under **Agent profile > Model**.
+Select a provider icon in the **Cloud** or **Local** rail, then select a model to
+save both choices for that bot. Selecting a provider icon alone only previews its
+models. For GitHub Copilot, select **Github Copilot cli** and then a model from its
+catalog. The picker only lists ready providers with returned models; cloud
+providers requiring sign-in are hidden, while local-only providers do not need
+cloud sign-in. Use **Settings > Engines > Set CLI...** if an installed CLI is not
+detected. Unavailable providers remain visible in Engines for configuration.
+
+Stop any active turn before switching providers. Provider switches clear the old
+provider's reasoning-effort setting. Coordinator models are configured separately
+under **Settings > Coordinator**.
+
 ## Validate a change
 
 ```sh
