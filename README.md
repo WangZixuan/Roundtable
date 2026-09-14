@@ -46,6 +46,22 @@ pnpm dev:desktop
 
 Use `pnpm dev` when you only need the browser renderer. The complete desktop development path is `pnpm dev:desktop`.
 
+## Default bots and role prompts
+
+An empty fleet starts with three bots: **Reviewer** for evidence-based review,
+**Planner** for read-only task planning, and **Executor** for implementation and
+validation. Each inherits the application's default provider and model. Existing
+fleets are not changed, and removed starter bots are not recreated while other
+bots remain.
+
+Edit each bot's instructions under **Agent profile > Description**. The runtime
+includes **Title** as its role and **Description** as persona instructions in
+direct chats and channel tasks; these fields are saved in `~/.Roundtable/bots.json`
+(or the configured `OMB_DATA_DIR`). The initial templates live in
+`server/default-bots.ts`. Role instructions guide behavior, not enforce tool
+permissions; normal approval controls still apply. The Planner bot does not
+replace the system Coordinator.
+
 ## Choose a bot's provider and model
 
 Open the model picker beside the message box or under **Agent profile > Model**.
