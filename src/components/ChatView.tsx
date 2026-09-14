@@ -60,6 +60,7 @@ import {
   expandWindowStart,
   focusWindowRange,
   resolveTranscriptWindow,
+  shouldContinueLoadingEarlier,
   tailWindowStart,
 } from "@/lib/transcript-window";
 import { timelineEvents } from "@/lib/taskTimeline";
@@ -1013,6 +1014,7 @@ export function ChatView({ bot }: { bot: Bot }) {
   // shift scrollTop by the growth so the message under the cursor stays put
   // (browser scroll anchoring is disabled on this container).
   const preExpandHeight = useRef<number | null>(null);
+  const loadingFullHistory = useRef(false);
   const pageState = state.messagePages[bot.threadId];
   const canLoadEarlier = hiddenCount > 0 || pageState?.hasMore === true;
   const showEarlier = async () => {
@@ -1040,7 +1042,17 @@ export function ChatView({ bot }: { bot: Bot }) {
     // keep the resume-follow heuristic from reading the restore as a
     // downward user scroll
     previousScrollTop.current = el.scrollTop;
-  }, [messages.length, transcriptWindow.start]);
+    if (!shouldContinueLoadingEarlier({
+      requested: loadingFullHistory.current,
+      canLoadEarlier,
+      loading: pageState?.loading === true,
+      failed: Boolean(pageState?.error),
+    })) {
+      if (!canLoadEarlier) loadingFullHistory.current = false;
+      return;
+    }
+    void showEarlier();
+  }, [canLoadEarlier, messages.length, pageState?.error, pageState?.loading, transcriptWindow.start]);
 
   const showLater = () => {
     setBottomFollow(false);
@@ -1186,7 +1198,10 @@ export function ChatView({ bot }: { bot: Bot }) {
           const el = scrollRef.current;
           if (!el) return;
           const scrollTop = el.scrollTop;
-          if (scrollTop < 80 && canLoadEarlier && !pageState?.loading && (hiddenCount > 0 || !pageState?.error)) void showEarlier();
+          if (scrollTop < 80 && canLoadEarlier && !pageState?.loading && (hiddenCount > 0 || !pageState?.error)) {
+            loadingFullHistory.current = true;
+            void showEarlier();
+          }
           const resume = shouldResumeBottomFollow({
             following: followRef.current,
             previousScrollTop: previousScrollTop.current,

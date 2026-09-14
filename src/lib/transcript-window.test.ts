@@ -5,6 +5,7 @@ import {
   expandWindowStart,
   focusWindowRange,
   resolveTranscriptWindow,
+  shouldContinueLoadingEarlier,
   tailWindowStart,
 } from "./transcript-window";
 
@@ -39,6 +40,15 @@ describe("expandWindowStart", () => {
 
   it("stays at zero once fully expanded", () => {
     expect(expandWindowStart(0)).toBe(0);
+  });
+});
+
+describe("shouldContinueLoadingEarlier", () => {
+  it("continues paging after reaching the top until no older messages remain", () => {
+    expect(shouldContinueLoadingEarlier({ requested: true, canLoadEarlier: true, loading: false })).toBe(true);
+    expect(shouldContinueLoadingEarlier({ requested: true, canLoadEarlier: false, loading: false })).toBe(false);
+    expect(shouldContinueLoadingEarlier({ requested: true, canLoadEarlier: true, loading: true })).toBe(false);
+    expect(shouldContinueLoadingEarlier({ requested: true, canLoadEarlier: true, loading: false, failed: true })).toBe(false);
   });
 });
 

@@ -32,6 +32,23 @@ export function expandWindowStart(startIndex: number, size: number = TRANSCRIPT_
   return Math.max(0, startIndex - size);
 }
 
+/** Once a reader reaches the top, keep requesting earlier pages until the
+ * complete transcript is available. A pending request or an error must stop
+ * the chain so the caller never duplicates a page or retries in a loop. */
+export function shouldContinueLoadingEarlier({
+  requested,
+  canLoadEarlier,
+  loading,
+  failed = false,
+}: {
+  requested: boolean;
+  canLoadEarlier: boolean;
+  loading: boolean;
+  failed?: boolean;
+}): boolean {
+  return requested && canLoadEarlier && !loading && !failed;
+}
+
 /** A bounded window containing a search target. Keeping this finite avoids
  * mounting an entire old transcript merely to land on one result. */
 export function focusWindowRange(
