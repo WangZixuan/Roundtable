@@ -467,7 +467,6 @@ export interface InstanceInfo {
 
 export type AppSettingsSection =
   | "general"
-  | "connections"
   | "engines"
   | "coordinator"
   | "computer"

@@ -34,7 +34,6 @@ import {
 } from "@/lib/skill-recorder";
 import { requestScreenPreview, stopScreenPreview } from "@/lib/screen-preview";
 import { TRANSCRIPTION_STATUS_EVENT } from "@/lib/transcription-status";
-import { useStore } from "@/state/store";
 
 type Phase = "idle" | "starting" | "recording" | "review" | "saving" | "saved";
 
@@ -66,7 +65,6 @@ function blobDataUrl(blob: Blob): Promise<string> {
 }
 
 export function SkillRecorderPage() {
-  const { dispatch } = useStore();
   const bridge = window.ogb?.skillRecorder;
   const [phase, setPhase] = useState<Phase>("idle");
   const phaseRef = useRef<Phase>("idle");
@@ -403,16 +401,9 @@ export function SkillRecorderPage() {
                       {transcriptionConfigured && <span className="text-[10px] font-medium text-success">Saved</span>}
                     </div>
                     <p className="mt-0.5 text-[11px] leading-4 text-ink-secondary">
-                      {transcriptionConfigured ? "AssemblyAI is ready for live narration." : "Add an AssemblyAI key in Settings before recording."}
+                      {transcriptionConfigured ? "AssemblyAI is ready for live narration." : "AssemblyAI is not configured for live narration."}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: "connections" })}
-                    className="shrink-0 rounded-xl bg-control px-3 py-2 text-[12px] font-medium text-ink hover:bg-raised-hover"
-                  >
-                    {transcriptionConfigured ? "Manage" : "Open Settings"}
-                  </button>
                 </div>
 
                 <button type="button" disabled={phase === "starting" || !transcriptionConfigured} onClick={() => void start()} className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-accent px-5 py-3.5 text-[14px] font-semibold text-white hover:brightness-110 disabled:opacity-40">
@@ -516,4 +507,3 @@ export function SkillRecorderPage() {
     </main>
   );
 }
-

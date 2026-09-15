@@ -1040,7 +1040,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     }
   };
 
-  // Esc closes the drawer, mirroring ApiKeys.tsx:75-85. Bound only while the
+  // Esc closes the drawer. Bound only while the
   // drawer is open — on mobile, exactly when a bot/room context menu or the
   // New Room panel can be open on top of it, so the same Escape press closes
   // them together. Fine, since both directions are "get me out of here."

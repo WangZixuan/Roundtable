@@ -47,7 +47,6 @@ import { ConnectorCard } from "./ConnectorCard";
 import { SecretRequestCard } from "./SecretRequestCard";
 import { AttachedImageGallery } from "./AttachmentPreview";
 import { RenameTitle } from "./RenameTitle";
-import { TaskPicker } from "./TaskPicker";
 import { CallOverlay } from "./CallView";
 import { BotDelivery } from "./BotDelivery";
 import { cn } from "@/lib/cn";
@@ -1185,7 +1184,6 @@ export function ChatView({ bot }: { bot: Bot }) {
           >
             <Search size={18} />
           </button>
-          <TaskPicker bot={bot} compact={macInset} />
           <ProfileButton compact={macInset} />
           <InspectorButton compact={macInset} open={state.inspectorOpen} onClick={() => dispatch({ type: "toggleInspector" })} />
           <UsageChip bot={bot} compact={macInset} />
