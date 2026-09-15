@@ -34,7 +34,7 @@ import { cn } from "@/lib/cn";
 import { useFocusMessage } from "@/lib/focus-message";
 import { shortPath } from "@/lib/short-path";
 import { BOTTOM_FOLLOW_THRESHOLD, shouldResumeBottomFollow } from "@/lib/bottom-follow";
-import { showWorkingDots } from "@/lib/turn-tail";
+import { hasVisibleStreamingText, showWorkingDots } from "@/lib/turn-tail";
 import { splitAttachedImages } from "@/lib/composer-attachments";
 import {
   TRANSCRIPT_WINDOW_SIZE,
@@ -537,10 +537,11 @@ export function GroupView({ group }: { group: Group }) {
   const { state, dispatch, loadEarlierMessages } = useStore();
   const stream = useStreaming();
   const streaming = stream.streaming[group.threadId];
+  const visibleStreaming = hasVisibleStreamingText(streaming) ? streaming : undefined;
   const channelStreams = Object.entries(group.memberSessions ?? {}).flatMap(([botId, threadId]) => {
     const bot = state.bots.find((member) => member.id === botId);
     const text = stream.streaming[threadId];
-    return bot && group.memberIds.includes(botId) && text ? [{ bot, threadId, text }] : [];
+    return bot && group.memberIds.includes(botId) && hasVisibleStreamingText(text) ? [{ bot, threadId, text }] : [];
   });
   const channelStreamText = channelStreams.map((entry) => entry.text).join("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -722,9 +723,12 @@ export function GroupView({ group }: { group: Group }) {
     </span>
   );
 
-  const isWin = window.ogb?.platform === "win32";
-  const drag = isWin ? ({ WebkitAppRegion: "drag" } as React.CSSProperties) : undefined;
-  const noDrag = isWin ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties) : undefined;
+  const platform = window.ogb?.platform;
+  const titleBarOverlay = Boolean(platform && platform !== "darwin");
+  // SAFETY: Electron supports this nonstandard CSS property, which React's type declarations omit.
+  const drag = platform ? ({ WebkitAppRegion: "drag" } as React.CSSProperties) : undefined;
+  // SAFETY: Interactive controls must opt out of the Electron drag region.
+  const noDrag = platform ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties) : undefined;
 
   return (
     <main className="chat-area relative flex h-full min-w-0 flex-1 flex-col bg-app">
@@ -738,11 +742,28 @@ export function GroupView({ group }: { group: Group }) {
           "flex items-center justify-between px-5",
           // Room for the drawer button, which overlays this corner below md.
           "pl-11 md:pl-5",
-          isWin ? "h-12 pr-[148px]" : "py-3",
+          titleBarOverlay ? "h-12 pr-[148px]" : "py-3",
         )}
         style={drag}
       >
-        <span className="text-[15px] font-semibold text-ink">{group.name}</span>
+        <div className="flex min-w-0 items-center gap-2.5">
+          {group.dm ? (
+            memberStack
+          ) : (
+            <button
+              ref={membersTriggerRef}
+              type="button"
+              onClick={() => setMembersOpen(true)}
+              title="Manage members"
+              aria-label={`Manage members — ${members.length} ${members.length === 1 ? "bot" : "bots"} in this channel`}
+              className="flex shrink-0 items-center rounded-full hover:bg-raised/60"
+              style={noDrag}
+            >
+              {memberStack}
+            </button>
+          )}
+          <span className="min-w-0 truncate text-[15px] font-semibold text-ink">{group.name}</span>
+        </div>
         <div className="flex items-center gap-1.5" style={noDrag}>
           <button
             type="button"
@@ -758,21 +779,6 @@ export function GroupView({ group }: { group: Group }) {
             <Search size={18} />
           </button>
           {!setupPending && !group.dm && <RoomWorkingFolderChip group={group} onToggle={() => setFolderOpen((open) => !open)} />}
-          {group.dm ? (
-            memberStack
-          ) : (
-            // The roster doubles as the member-management trigger.
-            <button
-              ref={membersTriggerRef}
-              type="button"
-              onClick={() => setMembersOpen(true)}
-              title="Manage members"
-              aria-label={`Manage members — ${members.length} ${members.length === 1 ? "bot" : "bots"} in this channel`}
-              className="flex items-center gap-1.5 rounded-full py-0.5 pl-1 pr-1.5 hover:bg-raised/60"
-            >
-              {memberStack}
-            </button>
-          )}
         </div>
       </div>
 
@@ -951,7 +957,7 @@ export function GroupView({ group }: { group: Group }) {
               </button>
             </div>
           )}
-          {speaker && showWorkingDots(true, streaming, group.messages.at(-1), speaker.id) && (
+          {speaker && showWorkingDots(true, visibleStreaming, group.messages.at(-1), speaker.id) && (
             <>
               <ClusterLabel bot={speaker} name={speaker.name} color={speaker.color} />
               <div className="flex justify-start">
@@ -963,10 +969,10 @@ export function GroupView({ group }: { group: Group }) {
               </div>
             </>
           )}
-          {speaker && streaming && (
+          {speaker && visibleStreaming && (
             <>
               <ClusterLabel bot={speaker} name={speaker.name} color={speaker.color} />
-              <StreamingBubble text={streaming} />
+              <StreamingBubble text={visibleStreaming} />
             </>
           )}
           {channelStreams.map(({ bot, threadId, text }) => <div key={threadId} aria-label={`${bot.name} reply`}>

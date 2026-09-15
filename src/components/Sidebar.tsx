@@ -756,7 +756,6 @@ function BotListItem({
   const { state, dispatch } = useStore();
   const [renaming, setRenaming] = useState(false);
   const selected = state.activeView === "chat" && state.selectedId === bot.id;
-  const mascotMotion = selected && state.mascotMotion?.botId === bot.id ? state.mascotMotion : null;
   const iconOnly = density === "icons";
   useEffect(() => {
     if (iconOnly) setRenaming(false);
@@ -785,13 +784,9 @@ function BotListItem({
         bot={bot}
         state={stateForBot({ ...bot, messages: visible })}
         size={avatarSize}
-        motion={mascotMotion?.kind ?? "none"}
-        motionKey={mascotMotion?.nonce ?? 0}
-        // Motion means something is happening. A resting bot holds a resting
-        // pose — N idle rows bobbing at display rate was most of the app's
-        // visible-idle CPU (states are keyword-derived, so "working" can be
-        // decorative; busy/unread/motion are the real signals).
-        animated={Boolean(bot.busy) || Boolean(bot.unread) || (mascotMotion?.kind ?? "none") !== "none"}
+        motion="none"
+        motionKey={0}
+        animated={false}
       />
       <div className={cn("min-w-0 flex-1", iconOnly && "hidden")}>
         <div className="flex items-center justify-between gap-2">
@@ -1180,16 +1175,17 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   };
 
   const macInset = capabilities.windowChrome === "mac-inset";
-  const windowsOverlay = capabilities.host.platform === "win32";
   const browser = capabilities.host.label === "Browser";
+  const titleBarOverlay = !browser && !macInset;
+  const titleBarButtonSize = macInset && density !== "icons" ? "size-8" : "size-10";
   // SAFETY: Electron's documented -webkit-app-region CSS property is not in
   // React's CSSProperties type, but the renderer accepts it as an inline style.
-  const windowDragStyle = macInset || windowsOverlay
+  const windowDragStyle = !browser
     ? ({ WebkitAppRegion: "drag" } as React.CSSProperties)
     : undefined;
   // SAFETY: Same Electron-only CSS property as windowDragStyle; interactive
   // buttons must explicitly opt out of the draggable title-bar region.
-  const windowNoDragStyle = macInset || windowsOverlay
+  const windowNoDragStyle = !browser
     ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties)
     : undefined;
 
@@ -1252,7 +1248,8 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       <div
         className={cn(
           "flex items-center",
-          windowsOverlay && density !== "icons" ? "h-12" : "pt-3.5 pb-1",
+          density !== "icons" && (titleBarOverlay || macInset ? "h-12" : "pt-3.5 pb-1"),
+          density === "icons" && "pt-3.5 pb-1",
           density === "icons" ? "flex-col gap-1 px-2" : "justify-between px-4",
         )}
         style={windowDragStyle}
@@ -1267,7 +1264,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
               <span className="size-3 rounded-full bg-[#28c840]" />
             </div>
           ) : null}
-          {windowsOverlay && (
+          {titleBarOverlay && (
             <span
               className={cn(
                 "select-none truncate text-sm font-semibold text-ink",
@@ -1286,7 +1283,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             type="button"
             onClick={toggleCollapsed}
             aria-label={density === "icons" ? "Expand sidebar" : "Collapse sidebar to avatars"}
-            className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
+            className={cn("flex items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink", titleBarButtonSize)}
             title={density === "icons" ? "Expand sidebar" : "Collapse to avatars"}
           >
             {density === "icons" ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}
@@ -1297,7 +1294,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
               onClick={() => setDensityOpen((value) => !value)}
               aria-label="Choose sidebar density"
               aria-expanded={densityOpen}
-              className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
+              className={cn("flex items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink", titleBarButtonSize)}
               title="Sidebar density"
             >
               <span aria-hidden="true" className="flex size-5 flex-col items-center justify-center gap-[3px]">
@@ -1335,7 +1332,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             ref={importReturnRef}
             onClick={() => setPlusOpen((o) => !o)}
             aria-label="New or share"
-            className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
+            className={cn("flex items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink", titleBarButtonSize)}
             title="New or share"
           >
             <Plus size={20} strokeWidth={2} />

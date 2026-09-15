@@ -618,9 +618,12 @@ export function RoutinesPage() {
       dispatch({ type: "markRoutineRunSeen", runId: item.run.id });
     }
   };
-  const isWin = window.ogb?.platform === "win32";
-  const drag = isWin ? ({ WebkitAppRegion: "drag" } as React.CSSProperties) : undefined;
-  const noDrag = isWin ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties) : undefined;
+  const platform = window.ogb?.platform;
+  const titleBarOverlay = Boolean(platform && platform !== "darwin");
+  // SAFETY: Electron supports this nonstandard CSS property, which React's type declarations omit.
+  const drag = platform ? ({ WebkitAppRegion: "drag" } as React.CSSProperties) : undefined;
+  // SAFETY: Interactive controls must opt out of the Electron drag region.
+  const noDrag = platform ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties) : undefined;
 
   return (
     <main className="flex h-full min-w-0 flex-1 flex-col bg-app">
@@ -629,8 +632,8 @@ export function RoutinesPage() {
           "shrink-0 px-5 pb-4 pt-4",
           // Room for the drawer button, which overlays this corner below md.
           "pl-11 md:pl-5",
-          // Keep actions out from under Electron's native Windows caption buttons.
-          isWin && "pr-[148px]",
+          // Keep actions out from under Electron's non-macOS caption buttons.
+          titleBarOverlay && "pr-[148px]",
         )}
         style={drag}
       >

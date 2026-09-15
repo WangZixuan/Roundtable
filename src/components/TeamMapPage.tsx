@@ -314,16 +314,19 @@ export function TeamMapPage() {
 
   const working = bots.filter((bot) => bot.busy || bot.activity === "working").length;
   const waiting = bots.filter((bot) => bot.activity === "waiting-on-you").length;
-  const isWin = window.ogb?.platform === "win32";
-  const drag = isWin ? ({ WebkitAppRegion: "drag" } as React.CSSProperties) : undefined;
-  const noDrag = isWin ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties) : undefined;
+  const platform = window.ogb?.platform;
+  const titleBarOverlay = Boolean(platform && platform !== "darwin");
+  // SAFETY: Electron supports this nonstandard CSS property, which React's type declarations omit.
+  const drag = platform ? ({ WebkitAppRegion: "drag" } as React.CSSProperties) : undefined;
+  // SAFETY: Interactive controls must opt out of the Electron drag region.
+  const noDrag = platform ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties) : undefined;
 
   return (
     <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-app text-ink">
       <header
         className={cn(
           "flex shrink-0 items-center justify-between border-b border-hairline/40 px-7 py-5 max-md:pl-12",
-          isWin && "pr-[148px]",
+          titleBarOverlay && "pr-[148px]",
         )}
         style={drag}
       >

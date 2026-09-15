@@ -11,7 +11,6 @@ import {
   Clock,
   CircleUserRound,
   FilePenLine,
-  ListTree,
   Loader2,
   MessageSquareReply,
   Pin,
@@ -36,7 +35,7 @@ import {
 import { EngineSetup } from "./EngineSetup";
 import { BotAvatar, MausAvatar, STANDARD_BOT_AVATAR_SIZE } from "./Avatar";
 import { stateForBot } from "@/lib/mascot";
-import { showWorkingDots } from "@/lib/turn-tail";
+import { hasVisibleStreamingText, showWorkingDots } from "@/lib/turn-tail";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { OptionCard, shouldHideOnboardingCard } from "./OptionCard";
 import { ApprovalCard } from "./ApprovalCard";
@@ -64,11 +63,11 @@ import {
   shouldContinueLoadingEarlier,
   tailWindowStart,
 } from "@/lib/transcript-window";
-import { timelineEvents } from "@/lib/taskTimeline";
 import { changedFilesFromTurnRows, type ChangedFile } from "@/lib/changed-files";
 import {
   commandRunCounts,
   commandRunRows,
+  commandRuns,
   currentCommand,
   hasPendingApproval,
   isLiveCommandRun,
@@ -95,65 +94,6 @@ function DaySeparator({ at }: { at: number }) {
   return (
     <div className="py-3 text-center text-[13px] text-ink-secondary">
       {dayLabel(at)} {formatTime(at)}
-    </div>
-  );
-}
-
-function TaskTimeline({ messages, busy, activity }: { messages: Message[]; busy: boolean; activity?: Bot["activity"] }) {
-  const [open, setOpen] = useState(false);
-  const events = useMemo(() => timelineEvents(messages), [messages]);
-  if (events.length === 0) return null;
-  const recent = events.slice(-8);
-  const latest = recent.at(-1);
-  const needsAttention = activity === "waiting-on-you" || activity === "dead" || latest?.state === "failed";
-  if (!busy && !needsAttention) return null;
-  const stateLabel =
-    activity === "waiting-on-you"
-      ? "needs your input"
-      : needsAttention
-        ? "needs attention"
-        : "running";
-  return (
-    <div className="mx-auto w-full max-w-[900px] px-5 pt-1">
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        aria-expanded={open}
-        className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-[12.5px] text-ink-secondary hover:bg-raised/50 hover:text-ink"
-      >
-        <span className="flex min-w-0 items-center gap-1.5">
-          <ListTree size={14} className="shrink-0" />
-          <span className="shrink-0">Activity · {stateLabel}</span>
-          {!open && latest && (
-            <span className="truncate text-ink-secondary/70">· {latest.label}</span>
-          )}
-        </span>
-        <ChevronDown size={14} className={cn("transition-transform", open && "rotate-180")} />
-      </button>
-      {open && (
-        <ol className="ml-2 border-l border-hairline/40 pb-2 pl-3">
-          {recent.map((event) => (
-            <li key={event.id} className="relative flex items-center gap-2 py-1 text-[12px] text-ink-secondary">
-              <span
-                aria-hidden="true"
-                className={cn(
-                  "absolute -left-[17px] size-2 rounded-full",
-                  event.state === "failed"
-                    ? "bg-danger"
-                    : event.state === "complete"
-                      ? "bg-success"
-                      : event.state === "running"
-                        ? "animate-pulse bg-accent"
-                        : "bg-ink-secondary",
-                )}
-              />
-              <span className="sr-only">{event.state}: </span>
-              <span className="truncate">{event.label}</span>
-              <time className="ml-auto shrink-0 text-[11px] text-ink-secondary/70">{formatTime(event.at)}</time>
-            </li>
-          ))}
-        </ol>
-      )}
     </div>
   );
 }
@@ -568,19 +508,6 @@ function approvalOutcome(message: Message): string {
   }
 }
 
-/** During an active turn, completed tool history stays out of the way. Only
- * the command that is actually running is visible; the settled group replaces
- * it when the turn finishes. */
-function CurrentCommandRow({ message }: { message: Message }) {
-  if (!message.tool) return null;
-  return (
-    <div className="flex min-w-0 items-center gap-2 py-1.5 text-[13px] text-ink-secondary" role="status" aria-live="polite">
-      <Loader2 size={13} className="shrink-0 animate-spin text-accent" aria-hidden="true" />
-      <span className="truncate font-mono">{message.tool.name}</span>
-    </div>
-  );
-}
-
 function CommandRunGroup({ run, focusedMessageId }: { run: CommandRunRow; focusedMessageId?: string }) {
   const [open, setOpen] = useState(false);
   const counts = commandRunCounts(run.messages);
@@ -593,6 +520,26 @@ function CommandRunGroup({ run, focusedMessageId }: { run: CommandRunRow; focuse
   const approvalLabel = counts.approvals > 0
     ? ` · ${counts.approvals} ${counts.approvals === 1 ? "approval" : "approvals"}`
     : "";
+  const statusCounts = [
+    counts.inProgress > 0 && {
+      key: "progress",
+      label: `${counts.inProgress} in progress`,
+      icon: <Loader2 size={13} className="animate-spin" aria-hidden="true" />,
+      className: "text-accent",
+    },
+    counts.failed > 0 && {
+      key: "failed",
+      label: `${counts.failed} failed`,
+      icon: <X size={13} aria-hidden="true" />,
+      className: "text-danger",
+    },
+    counts.completed > 0 && {
+      key: "completed",
+      label: `${counts.completed} completed`,
+      icon: <Check size={13} aria-hidden="true" />,
+      className: "text-success",
+    },
+  ].filter((status): status is Exclude<typeof status, false> => Boolean(status));
 
   return (
     <div className="flex justify-start">
@@ -608,9 +555,13 @@ function CommandRunGroup({ run, focusedMessageId }: { run: CommandRunRow; focuse
             <span className="font-medium text-ink">Run command</span>
             <span> · {actionLabel}{approvalLabel}</span>
           </span>
-          <span className={cn("flex shrink-0 items-center gap-1", counts.failed ? "text-danger" : "text-success")}>
-            {counts.failed ? <X size={13} aria-hidden="true" /> : <Check size={13} aria-hidden="true" />}
-            {counts.failed ? "Failed" : "Completed"}
+          <span className="flex shrink-0 items-center gap-2" role="status" aria-live="polite">
+            {statusCounts.map((status) => (
+              <span key={status.key} className={cn("flex items-center gap-1", status.className)}>
+                {status.icon}
+                {status.label}
+              </span>
+            ))}
           </span>
         </button>
         {open && (
@@ -690,17 +641,39 @@ function ScreenFrame({ png, mime }: { png: string; mime?: string }) {
   );
 }
 
-function StreamingBubble({ text }: { text: string }) {
+function StreamingBubble({ text, since }: { text: string; since: number }) {
   // markdown re-parses on a deferred value: when tokens arrive faster than
   // the parser keeps up, React lags the parse instead of janking the frame
   const deferred = useDeferredValue(text);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [hasRenderedContent, setHasRenderedContent] = useState(false);
+  useLayoutEffect(() => {
+    const content = contentRef.current;
+    if (!content) return;
+    const visibleText = content.textContent?.replace(/[\u200b-\u200f\u2060\ufeff]/g, "").trim();
+    const visibleElement = content.querySelector("img,svg,pre,table,hr,video,audio");
+    setHasRenderedContent(Boolean(visibleText || visibleElement));
+  }, [deferred]);
   return (
     <div className="flex w-full justify-start">
       <div className="w-full min-w-0 px-1 py-1.5 text-[15px] leading-relaxed text-ink">
-        <MessageBoundary fallbackText={deferred}>
-          <ChatMarkdown text={deferred} streaming />
-        </MessageBoundary>
-        <span className="animate-caret ml-0.5 inline-block h-[14px] w-[2px] bg-ink align-middle" />
+        <div ref={contentRef}>
+          <MessageBoundary fallbackText={deferred}>
+            <ChatMarkdown text={deferred} streaming />
+          </MessageBoundary>
+        </div>
+        {hasRenderedContent ? (
+          <span className="animate-caret ml-0.5 inline-block h-[14px] w-[2px] bg-ink align-middle" />
+        ) : (
+          <div className="flex items-center gap-2.5 rounded-2xl bg-raised px-4 py-3">
+            <span className="flex items-center gap-1.5">
+              <span className="size-1.5 animate-bounce rounded-full bg-ink-secondary [animation-delay:0ms]" />
+              <span className="size-1.5 animate-bounce rounded-full bg-ink-secondary [animation-delay:150ms]" />
+              <span className="size-1.5 animate-bounce rounded-full bg-ink-secondary [animation-delay:300ms]" />
+            </span>
+            <WorkingTimer since={since} />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -710,15 +683,15 @@ function StreamingBubble({ text }: { text: string }) {
  * no React commit per second while a turn streams (upstream trick). */
 function WorkingTimer({ since }: { since: number }) {
   const ref = useRef<HTMLSpanElement>(null);
+  const label = () => `Working for ${Math.max(0, Math.round((Date.now() - since) / 1000))}s`;
   useEffect(() => {
     const tick = () => {
-      if (ref.current) ref.current.textContent = `Working for ${Math.max(0, Math.round((Date.now() - since) / 1000))}s`;
+      if (ref.current) ref.current.textContent = label();
     };
-    tick();
     const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
   }, [since]);
-  return <span ref={ref} className="text-[12.5px] text-ink-secondary" />;
+  return <span ref={ref} className="text-[12.5px] text-ink-secondary">{label()}</span>;
 }
 
 /** The settled transcript, memoized as one unit: during streaming every
@@ -758,7 +731,9 @@ const MessagesList = memo(function MessagesList({
   const { state, dispatch } = useStore();
   const rows = useMemo(() => commandRunRows(messages), [messages]);
   const fallbackActiveTurnId = bot.busy
-    ? [...rows].reverse().find((row): row is CommandRunRow => row.kind === "command-run" && Boolean(currentCommand(row.messages) || hasPendingApproval(row.messages)))?.turnId
+    ? [...commandRuns(rows)].reverse().find(
+        (row) => Boolean(currentCommand(row.messages) || hasPendingApproval(row.messages)),
+      )?.turnId
     : undefined;
   const liveTurnId = activeTurnId ?? fallbackActiveTurnId;
   let previousRenderedAt: number | undefined;
@@ -775,8 +750,7 @@ const MessagesList = memo(function MessagesList({
             !message.card.dismissed,
         );
         if (pendingApproval) return <ApprovalCard bot={bot} message={pendingApproval} />;
-        const current = currentCommand(entry.messages);
-        return current ? <CurrentCommandRow message={current} /> : null;
+        return <CommandRunGroup run={entry} focusedMessageId={state.focusMessage?.messageId} />;
       }
       return <CommandRunGroup run={entry} focusedMessageId={state.focusMessage?.messageId} />;
     }
@@ -841,6 +815,14 @@ const MessagesList = memo(function MessagesList({
           const changedFilesIndex = changedFiles.length > 0
             ? entry.rows.findLastIndex((turnEntry) => turnEntry.kind === "message" && turnEntry.message.role === "bot" && turnEntry.message.kind === "text")
             : -1;
+          const toolbarIndex = bot.busy
+            ? -1
+            : entry.rows.findLastIndex(
+                (turnEntry) =>
+                  turnEntry.kind === "message" &&
+                  turnEntry.message.role === "bot" &&
+                  turnEntry.message.kind === "text",
+              );
           return (
             <div className="flex flex-col gap-1">
               {entry.rows.map((turnEntry, index) => {
@@ -851,7 +833,7 @@ const MessagesList = memo(function MessagesList({
                       data-mid={turnEntry.kind === "message" ? turnEntry.message.id : undefined}
                       className="contents"
                     >
-                      {renderRow(turnEntry, index === entry.rows.length - 1)}
+                      {renderRow(turnEntry, index === toolbarIndex)}
                     </div>
                   </Fragment>
                 );
@@ -932,10 +914,10 @@ export function ChatView({ bot }: { bot: Bot }) {
 
   const stream = useStreaming();
   const streaming = stream.streaming[bot.threadId];
+  const visibleStreaming = hasVisibleStreamingText(streaming) ? streaming : undefined;
   const reasoning = stream.reasoning[bot.threadId];
   const provisioning = state.provisioning[bot.id];
   const mascotMotion = state.mascotMotion?.botId === bot.id ? state.mascotMotion : null;
-  const currentTask = bot.tasks?.find((task) => task.threadId === bot.threadId);
   const [findOpen, setFindOpen] = useState(false);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   useEffect(() => setFindOpen(false), [bot.threadId]);
@@ -1144,13 +1126,16 @@ export function ChatView({ bot }: { bot: Bot }) {
     });
   };
 
-  // on Windows the frameless window's min/max/close overlay sits at the
-  // top-right: the header becomes the drag strip and clears room for it
-  const isWin = window.ogb?.platform === "win32";
+  // Every desktop header is a drag region. Non-macOS overlays also need room
+  // for their caption buttons.
+  const platform = window.ogb?.platform;
+  const macInset = platform === "darwin";
+  const titleBarOverlay = Boolean(platform && platform !== "darwin");
+  const titleBarButtonSize = macInset ? "size-8" : "size-10";
   // SAFETY: Electron supports this nonstandard CSS property, which React's type declarations omit.
-  const drag = isWin ? ({ WebkitAppRegion: "drag" } as React.CSSProperties) : undefined;
+  const drag = platform ? ({ WebkitAppRegion: "drag" } as React.CSSProperties) : undefined;
   // SAFETY: Electron supports this nonstandard CSS property, which React's type declarations omit.
-  const noDrag = isWin ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties) : undefined;
+  const noDrag = platform ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties) : undefined;
 
   return (
     <main className="chat-area relative flex h-full min-w-0 flex-1 flex-col bg-app">
@@ -1164,14 +1149,14 @@ export function ChatView({ bot }: { bot: Bot }) {
           "@container/chathead flex items-center justify-between px-5",
           // Room for the drawer button, which overlays this corner below md.
           "pl-11 md:pl-5",
-          isWin ? "h-12 pr-[148px]" : "py-3",
+          titleBarOverlay ? "h-12 pr-[148px]" : macInset ? "h-12" : "py-3",
         )}
         style={drag}
       >
-        <div className="flex min-w-0 items-center gap-1 rounded-lg pr-1.5 py-1">
+        <div className={cn("flex min-w-0 items-center gap-2.5 rounded-lg pr-1.5", !macInset && "py-1")}>
           <button
             onClick={() => dispatch({ type: "toggleSettings", open: true })}
-            className="-ml-1.5 flex size-10 shrink-0 items-center justify-center rounded-lg hover:bg-raised"
+            className="-ml-1.5 flex size-9 shrink-0 items-center justify-center rounded-lg hover:bg-raised"
             style={noDrag}
             title="Open agent profile"
             aria-label={`Open ${bot.name}'s profile`}
@@ -1182,17 +1167,10 @@ export function ChatView({ bot }: { bot: Bot }) {
               size={STANDARD_BOT_AVATAR_SIZE}
               motion={mascotMotion?.kind ?? "none"}
               motionKey={mascotMotion?.nonce ?? 0}
+              animated={false}
             />
           </button>
-          <div className="min-w-0 select-none">
-            <div className="relative top-1 flex min-w-0 items-center gap-2">
-              <span className="truncate text-[15px] font-semibold text-ink">{bot.name}</span>
-              {bot.busy && <Loader2 size={13} className="shrink-0 animate-spin text-ink-secondary" />}
-            </div>
-            <div className="max-w-[320px] truncate text-[11.5px] text-ink-secondary">
-              {currentTask?.title ?? "Direct conversation"}
-            </div>
-          </div>
+          <span className="min-w-0 truncate select-none text-[15px] font-semibold text-ink">{bot.name}</span>
         </div>
         <div className="flex shrink-0 items-center gap-1" style={noDrag}>
           <button
@@ -1200,17 +1178,18 @@ export function ChatView({ bot }: { bot: Bot }) {
             aria-label="Find in conversation"
             aria-pressed={findOpen}
             className={cn(
-              "flex size-10 items-center justify-center rounded-md hover:bg-raised",
+              "flex items-center justify-center rounded-md hover:bg-raised",
+              titleBarButtonSize,
               findOpen ? "text-accent" : "text-ink-secondary hover:text-ink",
             )}
             title="Find in conversation (⌘F)"
           >
             <Search size={18} />
           </button>
-          <TaskPicker bot={bot} />
-          <ProfileButton />
-          <InspectorButton open={state.inspectorOpen} onClick={() => dispatch({ type: "toggleInspector" })} />
-          <UsageChip bot={bot} />
+          <TaskPicker bot={bot} compact={macInset} />
+          <ProfileButton compact={macInset} />
+          <InspectorButton compact={macInset} open={state.inspectorOpen} onClick={() => dispatch({ type: "toggleInspector" })} />
+          <UsageChip bot={bot} compact={macInset} />
         </div>
       </div>
 
@@ -1237,8 +1216,6 @@ export function ChatView({ bot }: { bot: Bot }) {
           dispatch({ type: "updateBot", botId: bot.id, patch: { pinnedMessageId: "" } })
         }
       />
-
-      <TaskTimeline messages={messages} busy={bot.busy ?? false} activity={bot.activity} />
 
       {/* Messages */}
       <div
@@ -1330,11 +1307,11 @@ export function ChatView({ bot }: { bot: Bot }) {
               </div>
             </div>
           )}
-          {reasoning && bot.busy && <ThinkingStrip text={reasoning} active={!streaming} />}
-          {streaming ? (
-            <StreamingBubble text={streaming} />
+          {reasoning && bot.busy && <ThinkingStrip text={reasoning} active={!visibleStreaming} />}
+          {visibleStreaming ? (
+            <StreamingBubble text={visibleStreaming} since={lastUserMessage?.at ?? Date.now()} />
           ) : (
-            showWorkingDots(bot.busy, streaming, messages.at(-1)) && (
+            showWorkingDots(bot.busy, visibleStreaming, messages.at(-1)) && (
               <div className="flex justify-start">
                 <div className="flex items-center gap-2.5 rounded-2xl bg-raised px-4 py-3">
                   <span className="flex items-center gap-1.5">
@@ -1380,7 +1357,7 @@ export function ChatView({ bot }: { bot: Bot }) {
 
 /** What the open task has spent — quiet until the first turn settles.
  * Click opens the bot's settings, where the Usage card has the breakdown. */
-function UsageChip({ bot }: { bot: Bot }) {
+function UsageChip({ bot, compact = false }: { bot: Bot; compact?: boolean }) {
   const { state, dispatch } = useStore();
   const usage = bot.tasks?.find((t) => t.threadId === bot.threadId)?.usage;
   const text = usage ? usageChip(usage) : "";
@@ -1398,7 +1375,10 @@ function UsageChip({ bot }: { bot: Bot }) {
   return (
     <button
       onClick={() => dispatch({ type: "toggleSettings", open: true })}
-      className="h-10 whitespace-nowrap rounded-md px-3 text-[12px] tabular-nums text-ink-secondary hover:bg-raised hover:text-ink @max-4xl/chathead:px-2"
+      className={cn(
+        "whitespace-nowrap rounded-md px-3 text-[12px] tabular-nums text-ink-secondary hover:bg-raised hover:text-ink @max-4xl/chathead:px-2",
+        compact ? "h-8" : "h-10",
+      )}
       title={detail}
     >
       <span className="@max-4xl/chathead:hidden">{text}</span>
@@ -1407,13 +1387,16 @@ function UsageChip({ bot }: { bot: Bot }) {
   );
 }
 
-function ProfileButton() {
+function ProfileButton({ compact = false }: { compact?: boolean }) {
   const { dispatch } = useStore();
   return (
     <button
       onClick={() => dispatch({ type: "toggleSettings", open: true })}
       aria-label="Open agent profile"
-      className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
+      className={cn(
+        "flex items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink",
+        compact ? "size-8" : "size-10",
+      )}
       title="Profile"
     >
       <CircleUserRound size={18} strokeWidth={1.8} />
@@ -1421,14 +1404,15 @@ function ProfileButton() {
   );
 }
 
-function InspectorButton({ open, onClick }: { open: boolean; onClick: () => void }) {
+function InspectorButton({ open, onClick, compact = false }: { open: boolean; onClick: () => void; compact?: boolean }) {
   return (
     <button
       onClick={onClick}
       aria-label="Toggle inspector"
       aria-pressed={open}
       className={cn(
-        "flex size-10 items-center justify-center rounded-md hover:bg-raised",
+        "flex items-center justify-center rounded-md hover:bg-raised",
+        compact ? "size-8" : "size-10",
         open ? "text-accent" : "text-ink-secondary hover:text-ink",
       )}
       title="Runtime events and raw protocol for this thread"

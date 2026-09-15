@@ -24,7 +24,7 @@ function TaskUsage({ usage }: { usage: Task["usage"] }) {
   );
 }
 
-export function TaskPicker({ bot }: { bot: Bot }) {
+export function TaskPicker({ bot, compact = false }: { bot: Bot; compact?: boolean }) {
   const { dispatch } = useStore();
   const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -71,7 +71,10 @@ export function TaskPicker({ bot }: { bot: Bot }) {
         aria-label={`Switch task, ${tasks.length} tasks`}
         aria-expanded={open}
         title={switchTitle}
-        className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
+        className={cn(
+          "flex items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink",
+          compact ? "size-8" : "size-10",
+        )}
       >
         <Layers2 size={18} />
       </button>
