@@ -746,7 +746,24 @@ export function GroupView({ group }: { group: Group }) {
         )}
         style={drag}
       >
-        <span className="text-[15px] font-semibold text-ink">{group.name}</span>
+        <div className="flex min-w-0 items-center gap-2.5">
+          {group.dm ? (
+            memberStack
+          ) : (
+            <button
+              ref={membersTriggerRef}
+              type="button"
+              onClick={() => setMembersOpen(true)}
+              title="Manage members"
+              aria-label={`Manage members — ${members.length} ${members.length === 1 ? "bot" : "bots"} in this channel`}
+              className="flex shrink-0 items-center rounded-full hover:bg-raised/60"
+              style={noDrag}
+            >
+              {memberStack}
+            </button>
+          )}
+          <span className="min-w-0 truncate text-[15px] font-semibold text-ink">{group.name}</span>
+        </div>
         <div className="flex items-center gap-1.5" style={noDrag}>
           <button
             type="button"
@@ -762,21 +779,6 @@ export function GroupView({ group }: { group: Group }) {
             <Search size={18} />
           </button>
           {!setupPending && !group.dm && <RoomWorkingFolderChip group={group} onToggle={() => setFolderOpen((open) => !open)} />}
-          {group.dm ? (
-            memberStack
-          ) : (
-            // The roster doubles as the member-management trigger.
-            <button
-              ref={membersTriggerRef}
-              type="button"
-              onClick={() => setMembersOpen(true)}
-              title="Manage members"
-              aria-label={`Manage members — ${members.length} ${members.length === 1 ? "bot" : "bots"} in this channel`}
-              className="flex items-center gap-1.5 rounded-full py-0.5 pl-1 pr-1.5 hover:bg-raised/60"
-            >
-              {memberStack}
-            </button>
-          )}
         </div>
       </div>
 
