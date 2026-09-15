@@ -24,15 +24,43 @@ describe("command run transcript rows", () => {
     }
   });
 
-  it("leaves legacy, error, and communication activities as ordinary rows", () => {
+  it("groups settled legacy activities while leaving live, error, and communication rows unchanged", () => {
     const messages = [
       message({ id: "1", kind: "activity", tool: { name: "legacy", ok: true } }),
-      message({ id: "2", kind: "activity", turnId: "turn-a", tool: { name: "error: failed", ok: false } }),
-      message({ id: "3", kind: "activity", turnId: "turn-a", tool: { name: "Messaged @QA" }, comm: { groupId: "g", withBotId: "b", withName: "QA", withColor: "blue" } }),
+      message({ id: "2", kind: "activity", tool: { name: "legacy two", ok: true } }),
+      message({ id: "3", kind: "activity", tool: { name: "still running" } }),
+      message({ id: "4", kind: "activity", turnId: "turn-a", tool: { name: "error: failed", ok: false } }),
+      message({ id: "5", kind: "activity", turnId: "turn-a", tool: { name: "Messaged @QA" }, comm: { groupId: "g", withBotId: "b", withName: "QA", withColor: "blue" } }),
     ];
     const rows = commandRunRows(messages);
-    expect(rows.some((row) => row.kind === "command-run")).toBe(false);
-    expect(rows.flatMap((row) => row.kind === "turn" ? row.rows : [row]).every((row) => row.kind === "message")).toBe(true);
+    const flattened = rows.flatMap((row) => row.kind === "turn" ? row.rows : [row]);
+    expect(flattened[0]).toMatchObject({
+      kind: "command-run",
+      messages: [{ id: "1" }, { id: "2" }],
+    });
+    expect(flattened.slice(1).every((row) => row.kind === "message")).toBe(true);
+  });
+
+  it("treats legacy bot output between user messages as one backend turn", () => {
+    const messages = [
+      message({ id: "1", kind: "text", role: "user", text: "Start" }),
+      message({ id: "2", kind: "text", text: "Checking." }),
+      message({ id: "3", kind: "activity", tool: { name: "read", ok: true } }),
+      message({ id: "4", kind: "text", text: "Done." }),
+      message({ id: "5", kind: "text", role: "user", text: "Next" }),
+      message({ id: "6", kind: "text", text: "Second turn." }),
+    ];
+
+    const rows = commandRunRows(messages);
+    expect(rows.map((row) => row.kind)).toEqual(["message", "turn", "message", "turn"]);
+    expect(rows[1]).toMatchObject({
+      kind: "turn",
+      rows: [
+        { kind: "message", message: { id: "2" } },
+        { kind: "command-run", messages: [{ id: "3" }] },
+        { kind: "message", message: { id: "4" } },
+      ],
+    });
   });
 
   it("counts actions and approvals and exposes only an unfinished current command", () => {

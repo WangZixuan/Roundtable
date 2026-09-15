@@ -841,6 +841,12 @@ const MessagesList = memo(function MessagesList({
           const changedFilesIndex = changedFiles.length > 0
             ? entry.rows.findLastIndex((turnEntry) => turnEntry.kind === "message" && turnEntry.message.role === "bot" && turnEntry.message.kind === "text")
             : -1;
+          const toolbarIndex = entry.rows.findLastIndex(
+            (turnEntry) =>
+              turnEntry.kind === "message" &&
+              turnEntry.message.role === "bot" &&
+              turnEntry.message.kind === "text",
+          );
           return (
             <div className="flex flex-col gap-1">
               {entry.rows.map((turnEntry, index) => {
@@ -851,7 +857,7 @@ const MessagesList = memo(function MessagesList({
                       data-mid={turnEntry.kind === "message" ? turnEntry.message.id : undefined}
                       className="contents"
                     >
-                      {renderRow(turnEntry, index === entry.rows.length - 1)}
+                      {renderRow(turnEntry, index === toolbarIndex)}
                     </div>
                   </Fragment>
                 );

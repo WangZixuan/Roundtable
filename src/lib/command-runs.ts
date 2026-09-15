@@ -27,13 +27,21 @@ export interface CommandRunCounts {
 
 /** Runtime rows that become one compact command history after their turn.
  * Errors keep their dedicated treatment, and bot-to-bot communication keeps
- * its navigation chip. Old persisted rows without a turnId remain unchanged. */
+ * its navigation chip. */
 export function isCommandRunMessage(message: Message): boolean {
-  if (!message.turnId || message.comm) return false;
+  if (message.comm) return false;
   if (message.kind === "activity" && message.tool) {
     return !message.tool.name.startsWith("error:");
   }
   return message.kind === "options" && Boolean(message.card?.requestId && message.card.tool);
+}
+
+/** Legacy persisted messages predate turnId. Group only settled rows: a
+ * running command or unanswered approval must retain its live standalone UI. */
+function isSettledLegacyCommand(message: Message): boolean {
+  if (message.turnId || !isCommandRunMessage(message)) return false;
+  if (message.kind === "activity") return message.tool?.ok !== undefined;
+  return Boolean(message.card?.answered || message.card?.dismissed);
 }
 
 /** Consecutive runtime rows share a compact group. Assistant text is a
@@ -43,12 +51,17 @@ export function isCommandRunMessage(message: Message): boolean {
 export function commandRunRows(messages: Message[]): TranscriptRow[] {
   const rows: Array<CommandRunRow | MessageRow> = [];
   for (const message of messages) {
-    if (isCommandRunMessage(message) && message.turnId) {
+    if (isCommandRunMessage(message) && (message.turnId || isSettledLegacyCommand(message))) {
       const previous = rows.at(-1);
-      if (previous?.kind === "command-run" && previous.turnId === message.turnId) {
+      const runId = message.turnId ?? (
+        previous?.kind === "command-run" && previous.turnId.startsWith("legacy:")
+          ? previous.turnId
+          : `legacy:${message.id}`
+      );
+      if (previous?.kind === "command-run" && previous.turnId === runId) {
         previous.messages.push(message);
       } else {
-        rows.push({ kind: "command-run", turnId: message.turnId, messages: [message] });
+        rows.push({ kind: "command-run", turnId: runId, messages: [message] });
       }
     } else {
       rows.push({ kind: "message", message });
@@ -56,8 +69,23 @@ export function commandRunRows(messages: Message[]): TranscriptRow[] {
   }
 
   const grouped: TranscriptRow[] = [];
+  let legacyTurnId: string | undefined;
   for (const row of rows) {
-    const turnId = row.kind === "command-run" ? row.turnId : row.message.turnId;
+    const explicitTurnId = row.kind === "command-run"
+      ? row.turnId.startsWith("legacy:") ? undefined : row.turnId
+      : row.message.turnId;
+    const legacyBotRow = !explicitTurnId && (
+      row.kind === "command-run" ||
+      (row.message.role === "bot" && !row.message.comm)
+    );
+    if (explicitTurnId) legacyTurnId = undefined;
+    else if (legacyBotRow && !legacyTurnId) {
+      const messageId = row.kind === "command-run" ? row.messages[0].id : row.message.id;
+      legacyTurnId = `legacy-turn:${messageId}`;
+    } else if (!legacyBotRow) {
+      legacyTurnId = undefined;
+    }
+    const turnId = explicitTurnId ?? (legacyBotRow ? legacyTurnId : undefined);
     const previous = grouped.at(-1);
     if (turnId && row.kind === "message" && row.message.role === "bot") {
       if (previous?.kind === "turn" && previous.turnId === turnId) {
