@@ -514,7 +514,7 @@ function createWindow() {
     // macOS keeps inset traffic lights. Windows and Linux share the custom
     // title-bar overlay so every platform uses the same draggable app header.
     ...(isMac
-      ? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 16, y: 16 } }
+      ? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 16, y: 17 } }
       : {
           titleBarStyle: "hidden",
           // Match the compact renderer header so the native caption buttons

@@ -1182,6 +1182,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   const macInset = capabilities.windowChrome === "mac-inset";
   const browser = capabilities.host.label === "Browser";
   const titleBarOverlay = !browser && !macInset;
+  const titleBarButtonSize = macInset && density !== "icons" ? "size-8" : "size-10";
   // SAFETY: Electron's documented -webkit-app-region CSS property is not in
   // React's CSSProperties type, but the renderer accepts it as an inline style.
   const windowDragStyle = !browser
@@ -1252,7 +1253,8 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       <div
         className={cn(
           "flex items-center",
-          titleBarOverlay && density !== "icons" ? "h-12" : "pt-3.5 pb-1",
+          density !== "icons" && (titleBarOverlay || macInset ? "h-12" : "pt-3.5 pb-1"),
+          density === "icons" && "pt-3.5 pb-1",
           density === "icons" ? "flex-col gap-1 px-2" : "justify-between px-4",
         )}
         style={windowDragStyle}
@@ -1286,7 +1288,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             type="button"
             onClick={toggleCollapsed}
             aria-label={density === "icons" ? "Expand sidebar" : "Collapse sidebar to avatars"}
-            className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
+            className={cn("flex items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink", titleBarButtonSize)}
             title={density === "icons" ? "Expand sidebar" : "Collapse to avatars"}
           >
             {density === "icons" ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}
@@ -1297,7 +1299,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
               onClick={() => setDensityOpen((value) => !value)}
               aria-label="Choose sidebar density"
               aria-expanded={densityOpen}
-              className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
+              className={cn("flex items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink", titleBarButtonSize)}
               title="Sidebar density"
             >
               <span aria-hidden="true" className="flex size-5 flex-col items-center justify-center gap-[3px]">
@@ -1335,7 +1337,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             ref={importReturnRef}
             onClick={() => setPlusOpen((o) => !o)}
             aria-label="New or share"
-            className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
+            className={cn("flex items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink", titleBarButtonSize)}
             title="New or share"
           >
             <Plus size={20} strokeWidth={2} />

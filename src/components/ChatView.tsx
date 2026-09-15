@@ -780,7 +780,7 @@ const MessagesList = memo(function MessagesList({
           const changedFilesIndex = changedFiles.length > 0
             ? entry.rows.findLastIndex((turnEntry) => turnEntry.kind === "message" && turnEntry.message.role === "bot" && turnEntry.message.kind === "text")
             : -1;
-          const toolbarIndex = bot.busy && entry.turnId === liveTurnId
+          const toolbarIndex = bot.busy
             ? -1
             : entry.rows.findLastIndex(
                 (turnEntry) =>
@@ -882,7 +882,6 @@ export function ChatView({ bot }: { bot: Bot }) {
   const reasoning = stream.reasoning[bot.threadId];
   const provisioning = state.provisioning[bot.id];
   const mascotMotion = state.mascotMotion?.botId === bot.id ? state.mascotMotion : null;
-  const currentTask = bot.tasks?.find((task) => task.threadId === bot.threadId);
   const [findOpen, setFindOpen] = useState(false);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   useEffect(() => setFindOpen(false), [bot.threadId]);
@@ -1094,7 +1093,9 @@ export function ChatView({ bot }: { bot: Bot }) {
   // Every desktop header is a drag region. Non-macOS overlays also need room
   // for their caption buttons.
   const platform = window.ogb?.platform;
+  const macInset = platform === "darwin";
   const titleBarOverlay = Boolean(platform && platform !== "darwin");
+  const titleBarButtonSize = macInset ? "size-8" : "size-10";
   // SAFETY: Electron supports this nonstandard CSS property, which React's type declarations omit.
   const drag = platform ? ({ WebkitAppRegion: "drag" } as React.CSSProperties) : undefined;
   // SAFETY: Electron supports this nonstandard CSS property, which React's type declarations omit.
@@ -1112,14 +1113,17 @@ export function ChatView({ bot }: { bot: Bot }) {
           "@container/chathead flex items-center justify-between px-5",
           // Room for the drawer button, which overlays this corner below md.
           "pl-11 md:pl-5",
-          titleBarOverlay ? "h-12 pr-[148px]" : "py-3",
+          titleBarOverlay ? "h-12 pr-[148px]" : macInset ? "h-12" : "py-3",
         )}
         style={drag}
       >
-        <div className="flex min-w-0 items-center gap-1 rounded-lg pr-1.5 py-1">
+        <div className={cn("flex min-w-0 items-center gap-2.5 rounded-lg pr-1.5", !macInset && "py-1")}>
           <button
             onClick={() => dispatch({ type: "toggleSettings", open: true })}
-            className="-ml-1.5 flex size-10 shrink-0 items-center justify-center rounded-lg hover:bg-raised"
+            className={cn(
+              "-ml-1.5 flex shrink-0 items-center justify-center rounded-lg hover:bg-raised",
+              titleBarButtonSize,
+            )}
             style={noDrag}
             title="Open agent profile"
             aria-label={`Open ${bot.name}'s profile`}
@@ -1132,15 +1136,7 @@ export function ChatView({ bot }: { bot: Bot }) {
               motionKey={mascotMotion?.nonce ?? 0}
             />
           </button>
-          <div className="min-w-0 select-none">
-            <div className="relative top-1 flex min-w-0 items-center gap-2">
-              <span className="truncate text-[15px] font-semibold text-ink">{bot.name}</span>
-              {bot.busy && <Loader2 size={13} className="shrink-0 animate-spin text-ink-secondary" />}
-            </div>
-            <div className="max-w-[320px] truncate text-[11.5px] text-ink-secondary">
-              {currentTask?.title ?? "Direct conversation"}
-            </div>
-          </div>
+          <span className="min-w-0 truncate select-none text-[15px] font-semibold text-ink">{bot.name}</span>
         </div>
         <div className="flex shrink-0 items-center gap-1" style={noDrag}>
           <button
@@ -1148,17 +1144,18 @@ export function ChatView({ bot }: { bot: Bot }) {
             aria-label="Find in conversation"
             aria-pressed={findOpen}
             className={cn(
-              "flex size-10 items-center justify-center rounded-md hover:bg-raised",
+              "flex items-center justify-center rounded-md hover:bg-raised",
+              titleBarButtonSize,
               findOpen ? "text-accent" : "text-ink-secondary hover:text-ink",
             )}
             title="Find in conversation (⌘F)"
           >
             <Search size={18} />
           </button>
-          <TaskPicker bot={bot} />
-          <ProfileButton />
-          <InspectorButton open={state.inspectorOpen} onClick={() => dispatch({ type: "toggleInspector" })} />
-          <UsageChip bot={bot} />
+          <TaskPicker bot={bot} compact={macInset} />
+          <ProfileButton compact={macInset} />
+          <InspectorButton compact={macInset} open={state.inspectorOpen} onClick={() => dispatch({ type: "toggleInspector" })} />
+          <UsageChip bot={bot} compact={macInset} />
         </div>
       </div>
 
@@ -1326,7 +1323,7 @@ export function ChatView({ bot }: { bot: Bot }) {
 
 /** What the open task has spent — quiet until the first turn settles.
  * Click opens the bot's settings, where the Usage card has the breakdown. */
-function UsageChip({ bot }: { bot: Bot }) {
+function UsageChip({ bot, compact = false }: { bot: Bot; compact?: boolean }) {
   const { state, dispatch } = useStore();
   const usage = bot.tasks?.find((t) => t.threadId === bot.threadId)?.usage;
   const text = usage ? usageChip(usage) : "";
@@ -1344,7 +1341,10 @@ function UsageChip({ bot }: { bot: Bot }) {
   return (
     <button
       onClick={() => dispatch({ type: "toggleSettings", open: true })}
-      className="h-10 whitespace-nowrap rounded-md px-3 text-[12px] tabular-nums text-ink-secondary hover:bg-raised hover:text-ink @max-4xl/chathead:px-2"
+      className={cn(
+        "whitespace-nowrap rounded-md px-3 text-[12px] tabular-nums text-ink-secondary hover:bg-raised hover:text-ink @max-4xl/chathead:px-2",
+        compact ? "h-8" : "h-10",
+      )}
       title={detail}
     >
       <span className="@max-4xl/chathead:hidden">{text}</span>
@@ -1353,13 +1353,16 @@ function UsageChip({ bot }: { bot: Bot }) {
   );
 }
 
-function ProfileButton() {
+function ProfileButton({ compact = false }: { compact?: boolean }) {
   const { dispatch } = useStore();
   return (
     <button
       onClick={() => dispatch({ type: "toggleSettings", open: true })}
       aria-label="Open agent profile"
-      className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
+      className={cn(
+        "flex items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink",
+        compact ? "size-8" : "size-10",
+      )}
       title="Profile"
     >
       <CircleUserRound size={18} strokeWidth={1.8} />
@@ -1367,14 +1370,15 @@ function ProfileButton() {
   );
 }
 
-function InspectorButton({ open, onClick }: { open: boolean; onClick: () => void }) {
+function InspectorButton({ open, onClick, compact = false }: { open: boolean; onClick: () => void; compact?: boolean }) {
   return (
     <button
       onClick={onClick}
       aria-label="Toggle inspector"
       aria-pressed={open}
       className={cn(
-        "flex size-10 items-center justify-center rounded-md hover:bg-raised",
+        "flex items-center justify-center rounded-md hover:bg-raised",
+        compact ? "size-8" : "size-10",
         open ? "text-accent" : "text-ink-secondary hover:text-ink",
       )}
       title="Runtime events and raw protocol for this thread"
