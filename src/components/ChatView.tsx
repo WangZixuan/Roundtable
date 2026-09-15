@@ -1144,13 +1144,14 @@ export function ChatView({ bot }: { bot: Bot }) {
     });
   };
 
-  // on Windows the frameless window's min/max/close overlay sits at the
-  // top-right: the header becomes the drag strip and clears room for it
-  const isWin = window.ogb?.platform === "win32";
+  // Every desktop header is a drag region. Non-macOS overlays also need room
+  // for their caption buttons.
+  const platform = window.ogb?.platform;
+  const titleBarOverlay = Boolean(platform && platform !== "darwin");
   // SAFETY: Electron supports this nonstandard CSS property, which React's type declarations omit.
-  const drag = isWin ? ({ WebkitAppRegion: "drag" } as React.CSSProperties) : undefined;
+  const drag = platform ? ({ WebkitAppRegion: "drag" } as React.CSSProperties) : undefined;
   // SAFETY: Electron supports this nonstandard CSS property, which React's type declarations omit.
-  const noDrag = isWin ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties) : undefined;
+  const noDrag = platform ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties) : undefined;
 
   return (
     <main className="chat-area relative flex h-full min-w-0 flex-1 flex-col bg-app">
@@ -1164,7 +1165,7 @@ export function ChatView({ bot }: { bot: Bot }) {
           "@container/chathead flex items-center justify-between px-5",
           // Room for the drawer button, which overlays this corner below md.
           "pl-11 md:pl-5",
-          isWin ? "h-12 pr-[148px]" : "py-3",
+          titleBarOverlay ? "h-12 pr-[148px]" : "py-3",
         )}
         style={drag}
       >

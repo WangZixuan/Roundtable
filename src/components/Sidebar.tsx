@@ -1180,16 +1180,16 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   };
 
   const macInset = capabilities.windowChrome === "mac-inset";
-  const windowsOverlay = capabilities.host.platform === "win32";
   const browser = capabilities.host.label === "Browser";
+  const titleBarOverlay = !browser && !macInset;
   // SAFETY: Electron's documented -webkit-app-region CSS property is not in
   // React's CSSProperties type, but the renderer accepts it as an inline style.
-  const windowDragStyle = macInset || windowsOverlay
+  const windowDragStyle = !browser
     ? ({ WebkitAppRegion: "drag" } as React.CSSProperties)
     : undefined;
   // SAFETY: Same Electron-only CSS property as windowDragStyle; interactive
   // buttons must explicitly opt out of the draggable title-bar region.
-  const windowNoDragStyle = macInset || windowsOverlay
+  const windowNoDragStyle = !browser
     ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties)
     : undefined;
 
@@ -1252,7 +1252,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       <div
         className={cn(
           "flex items-center",
-          windowsOverlay && density !== "icons" ? "h-12" : "pt-3.5 pb-1",
+          titleBarOverlay && density !== "icons" ? "h-12" : "pt-3.5 pb-1",
           density === "icons" ? "flex-col gap-1 px-2" : "justify-between px-4",
         )}
         style={windowDragStyle}
@@ -1267,7 +1267,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
               <span className="size-3 rounded-full bg-[#28c840]" />
             </div>
           ) : null}
-          {windowsOverlay && (
+          {titleBarOverlay && (
             <span
               className={cn(
                 "select-none truncate text-sm font-semibold text-ink",

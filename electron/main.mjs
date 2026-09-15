@@ -493,7 +493,7 @@ ipcMain.on("desktop:unread-count", (event, value) => {
 
 ipcMain.on("desktop:title-bar-theme", (event, colors) => {
   const sender = BrowserWindow.fromWebContents(event.sender);
-  if (process.platform !== "win32" || !sender || sender !== mainWindow || sender.isDestroyed()) return;
+  if (process.platform === "darwin" || !sender || sender !== mainWindow || sender.isDestroyed()) return;
   const validColor = (value) => typeof value === "string" && /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(value);
   if (!validColor(colors?.background) || !validColor(colors?.symbols)) return;
   sender.setTitleBarOverlay({ color: colors.background, symbolColor: colors.symbols, height: 48 });
@@ -511,18 +511,16 @@ function createWindow() {
     icon: APP_ICON,
     backgroundColor: "#dfeceb",
     autoHideMenuBar: process.platform !== "darwin",
-    // macOS keeps inset traffic lights, Windows keeps its custom overlay,
-    // and Linux uses the native desktop title bar and window controls.
+    // macOS keeps inset traffic lights. Windows and Linux share the custom
+    // title-bar overlay so every platform uses the same draggable app header.
     ...(isMac
       ? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 16, y: 16 } }
-      : process.platform === "win32"
-        ? {
-            titleBarStyle: "hidden",
-            // Match the compact Windows renderer header so the native caption
-            // buttons and the adjacent toolbar share one vertical center.
-            titleBarOverlay: { color: "#dfeceb", symbolColor: "#14201f", height: 48 },
-          }
-        : {}),
+      : {
+          titleBarStyle: "hidden",
+          // Match the compact renderer header so the native caption buttons
+          // and the adjacent toolbar share one vertical center.
+          titleBarOverlay: { color: "#dfeceb", symbolColor: "#14201f", height: 48 },
+        }),
     webPreferences: {
       contextIsolation: true,
       preload: path.join(__dirname, "preload.cjs"),

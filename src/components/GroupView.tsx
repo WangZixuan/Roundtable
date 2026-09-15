@@ -722,9 +722,12 @@ export function GroupView({ group }: { group: Group }) {
     </span>
   );
 
-  const isWin = window.ogb?.platform === "win32";
-  const drag = isWin ? ({ WebkitAppRegion: "drag" } as React.CSSProperties) : undefined;
-  const noDrag = isWin ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties) : undefined;
+  const platform = window.ogb?.platform;
+  const titleBarOverlay = Boolean(platform && platform !== "darwin");
+  // SAFETY: Electron supports this nonstandard CSS property, which React's type declarations omit.
+  const drag = platform ? ({ WebkitAppRegion: "drag" } as React.CSSProperties) : undefined;
+  // SAFETY: Interactive controls must opt out of the Electron drag region.
+  const noDrag = platform ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties) : undefined;
 
   return (
     <main className="chat-area relative flex h-full min-w-0 flex-1 flex-col bg-app">
@@ -738,7 +741,7 @@ export function GroupView({ group }: { group: Group }) {
           "flex items-center justify-between px-5",
           // Room for the drawer button, which overlays this corner below md.
           "pl-11 md:pl-5",
-          isWin ? "h-12 pr-[148px]" : "py-3",
+          titleBarOverlay ? "h-12 pr-[148px]" : "py-3",
         )}
         style={drag}
       >
