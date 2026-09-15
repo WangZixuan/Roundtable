@@ -81,7 +81,7 @@ function NavButton({ active, icon: Icon, label, onClick }: { active: boolean; ic
 }
 
 function ConversationRow({ row, selected, onOpen }: { row: ChatRow; selected: boolean; onOpen: () => void }) {
-  const subtitle = row.title === row.owner ? row.preview : row.title;
+  const subtitle = row.kind === "direct" ? row.owner : row.preview;
   return (
     <button
       type="button"
@@ -92,20 +92,14 @@ function ConversationRow({ row, selected, onOpen }: { row: ChatRow; selected: bo
         selected ? "bg-accent/10" : "hover:bg-raised/70",
       )}
     >
-      {row.kind === "channel" ? (
+      {row.kind === "channel" && (
         <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-accent/10 text-accent">
           <Hash size={16} />
-        </span>
-      ) : row.agent ? (
-        <BotAvatar bot={row.agent} size={STANDARD_BOT_AVATAR_SIZE} />
-      ) : (
-        <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-raised text-ink-secondary">
-          <Bot size={15} />
         </span>
       )}
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-2">
-          <span className="truncate text-[13px] font-medium text-ink">{row.owner}</span>
+          <span className="truncate text-[13px] font-medium text-ink">{row.title}</span>
           <span className="ml-auto shrink-0 text-[11px] text-ink-secondary">{row.at ? formatTime(row.at) : ""}</span>
         </span>
         <span className="block truncate text-[12px] text-ink-secondary">{subtitle}</span>
