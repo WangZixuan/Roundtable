@@ -6,6 +6,7 @@ import {
 import { formatTime, useStore, type Bot as Agent, type Group } from "@/state/store";
 import { BotAvatar } from "./Avatar";
 import { cn } from "@/lib/cn";
+import { useDesktopCapabilities } from "./DesktopCapabilities";
 
 type WorkspaceView = "chats" | "channels" | "tasks" | "agents";
 type ChatFilter = "all" | "channels" | "direct" | "unread";
@@ -101,11 +102,12 @@ function ConversationRow({ row, selected, onOpen }: { row: ChatRow; selected: bo
   );
 }
 
-function NewChatMenu({ agents, open, onOpenChange, onSelect }: {
+function NewChatMenu({ agents, open, onOpenChange, onSelect, noDragStyle }: {
   agents: Agent[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelect: (agent: Agent) => void;
+  noDragStyle?: React.CSSProperties;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -130,7 +132,7 @@ function NewChatMenu({ agents, open, onOpenChange, onSelect }: {
   }, [onOpenChange, open]);
 
   return (
-    <div ref={menuRef} className="relative">
+    <div ref={menuRef} className="relative" style={noDragStyle}>
       <button
         ref={buttonRef}
         type="button"
@@ -180,6 +182,7 @@ function NewChatMenu({ agents, open, onOpenChange, onSelect }: {
  * provider cursor, so no history or session migration is required. */
 export function WorkspaceNavigation({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { state, dispatch } = useStore();
+  const { capabilities } = useDesktopCapabilities();
   const [view, setView] = useState<WorkspaceView>("chats");
   const [filter, setFilter] = useState<ChatFilter>("all");
   const [query, setQuery] = useState("");
@@ -214,12 +217,17 @@ export function WorkspaceNavigation({ open, onClose }: { open: boolean; onClose:
     setNewChatOpen(false);
     setView("chats");
   };
+  const desktop = capabilities.host.label !== "Browser";
+  // SAFETY: Electron implements this CSS property although React's declarations omit it.
+  const dragStyle = desktop ? ({ WebkitAppRegion: "drag" } as React.CSSProperties) : undefined;
+  // SAFETY: Interactive descendants of an Electron drag region must opt out explicitly.
+  const noDragStyle = desktop ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties) : undefined;
 
   const title = view === "chats" ? "Chats" : view === "channels" ? "Channels" : view === "tasks" ? "Tasks" : "Agents";
   return (
     <aside className={cn("z-40 flex h-full shrink-0 border-r border-hairline/50 bg-panel max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:w-[344px] max-md:shadow-2xl", open ? "max-md:translate-x-0" : "max-md:-translate-x-full", "transition-transform md:w-[352px]") }>
       <nav className="flex w-16 flex-col items-center gap-2 border-r border-hairline/40 px-2 pb-3 pt-3">
-        <div className="mb-3 flex size-10 items-center justify-center rounded-xl bg-accent text-lg font-bold text-white">R</div>
+        <div className="mb-3 flex size-10 items-center justify-center rounded-xl bg-accent text-lg font-bold text-white" style={dragStyle}>R</div>
         <NavButton active={view === "chats"} icon={MessageCircle} label="Chats" onClick={() => setView("chats")} />
         <NavButton active={view === "channels"} icon={Hash} label="Channels" onClick={() => setView("channels")} />
         <NavButton active={view === "tasks"} icon={CheckCircle2} label="Tasks" onClick={() => setView("tasks")} />
@@ -228,7 +236,7 @@ export function WorkspaceNavigation({ open, onClose }: { open: boolean; onClose:
         <NavButton active={false} icon={Settings2} label="Settings" onClick={() => dispatch({ type: "toggleAppSettings" })} />
       </nav>
       <section className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 items-center gap-2 px-4">
+        <header className="flex h-14 items-center gap-2 px-4" style={dragStyle}>
           <h1 className="text-[15px] font-semibold text-ink">{title}</h1>
           <span className="flex-1" />
           {(view === "chats" || view === "agents") && (
@@ -237,6 +245,7 @@ export function WorkspaceNavigation({ open, onClose }: { open: boolean; onClose:
               open={newChatOpen}
               onOpenChange={setNewChatOpen}
               onSelect={createDirectChat}
+              noDragStyle={noDragStyle}
             />
           )}
         </header>
