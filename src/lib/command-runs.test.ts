@@ -20,7 +20,11 @@ describe("command run transcript rows", () => {
     const rows = commandRunRows(messages);
     expect(rows.map((row) => row.kind)).toEqual(["turn"]);
     if (rows[0].kind === "turn") {
-      expect(rows[0].rows.map((row) => row.kind)).toEqual(["command-run", "message", "command-run", "message"]);
+      expect(rows[0].rows.map((row) => row.kind)).toEqual(["command-run", "message", "message"]);
+      expect(rows[0].rows[0]).toMatchObject({
+        kind: "command-run",
+        messages: [{ id: "1" }, { id: "3" }],
+      });
     }
   });
 
@@ -80,7 +84,7 @@ describe("command run transcript rows", () => {
     expect(commandRunCounts([{ ...pending, card: { ...pending.card!, answered: "deny" } }]).failed).toBe(false);
   });
 
-  it("only marks the latest unresolved command sequence as live", () => {
+  it("marks the consolidated unresolved command group as live", () => {
     const messages = [
       message({ id: "1", kind: "activity", turnId: "turn-a", tool: { name: "old command" } }),
       message({ id: "2", kind: "text", turnId: "turn-a", text: "Continuing." }),
@@ -88,7 +92,8 @@ describe("command run transcript rows", () => {
     ];
     const rows = commandRunRows(messages);
     const nestedCommandRows = rows.flatMap((row) => row.kind === "turn" ? row.rows.filter((nested) => nested.kind === "command-run") : []);
-    expect(isLiveCommandRun(rows, nestedCommandRows[0], "turn-a")).toBe(false);
-    expect(isLiveCommandRun(rows, nestedCommandRows[1], "turn-a")).toBe(true);
+    expect(nestedCommandRows).toHaveLength(1);
+    expect(nestedCommandRows[0].messages.map((item) => item.id)).toEqual(["1", "3"]);
+    expect(isLiveCommandRun(rows, nestedCommandRows[0], "turn-a")).toBe(true);
   });
 });

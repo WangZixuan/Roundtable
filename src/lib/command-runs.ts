@@ -44,10 +44,9 @@ function isSettledLegacyCommand(message: Message): boolean {
   return Boolean(message.card?.answered || message.card?.dismissed);
 }
 
-/** Consecutive runtime rows share a compact group. Assistant text is a
- * meaningful transcript boundary, so each command sequence remains beside
- * the assistant message that introduced it rather than being merged across
- * an entire provider turn. */
+/** Runtime rows first form compact consecutive groups. The turn pass below
+ * then consolidates those groups so one backend turn renders one Run command
+ * card even when assistant text appeared between tool calls. */
 export function commandRunRows(messages: Message[]): TranscriptRow[] {
   const rows: Array<CommandRunRow | MessageRow> = [];
   for (const message of messages) {
@@ -95,7 +94,11 @@ export function commandRunRows(messages: Message[]): TranscriptRow[] {
       }
     } else if (turnId && row.kind === "command-run") {
       if (previous?.kind === "turn" && previous.turnId === turnId) {
-        previous.rows.push(row);
+        const commandRun = previous.rows.find(
+          (candidate): candidate is CommandRunRow => candidate.kind === "command-run",
+        );
+        if (commandRun) commandRun.messages.push(...row.messages);
+        else previous.rows.push(row);
       } else {
         grouped.push({ kind: "turn", turnId, rows: [row] });
       }

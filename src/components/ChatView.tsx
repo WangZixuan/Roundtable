@@ -1120,10 +1120,7 @@ export function ChatView({ bot }: { bot: Bot }) {
         <div className={cn("flex min-w-0 items-center gap-2.5 rounded-lg pr-1.5", !macInset && "py-1")}>
           <button
             onClick={() => dispatch({ type: "toggleSettings", open: true })}
-            className={cn(
-              "-ml-1.5 flex shrink-0 items-center justify-center rounded-lg hover:bg-raised",
-              titleBarButtonSize,
-            )}
+            className="-ml-1.5 flex size-9 shrink-0 items-center justify-center rounded-lg hover:bg-raised"
             style={noDrag}
             title="Open agent profile"
             aria-label={`Open ${bot.name}'s profile`}
@@ -1134,6 +1131,7 @@ export function ChatView({ bot }: { bot: Bot }) {
               size={STANDARD_BOT_AVATAR_SIZE}
               motion={mascotMotion?.kind ?? "none"}
               motionKey={mascotMotion?.nonce ?? 0}
+              animated={false}
             />
           </button>
           <span className="min-w-0 truncate select-none text-[15px] font-semibold text-ink">{bot.name}</span>
