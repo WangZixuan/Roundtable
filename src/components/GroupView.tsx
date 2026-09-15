@@ -13,8 +13,7 @@ import {
   type Group,
   type Message,
 } from "@/state/store";
-import { BotAvatar, CoordinatorAvatar, MausAvatar } from "./Avatar";
-import { normalizeState } from "@/lib/mascot";
+import { AgentInitialsAvatar, BotAvatar, CoordinatorAvatar } from "./Avatar";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { Composer } from "./Composer";
 import { ChatFindBar } from "./ChatFindBar";
@@ -59,8 +58,8 @@ function isCoordinatorMessage(message: Message | undefined): boolean {
   return message?.author === "coordinator" || Boolean(message?.executionReport);
 }
 
-/** 32px maus + name, shown once per sender cluster. */
-function ClusterLabel({ bot, name, color, coordinator = false }: { bot?: Bot; name: string; color: string; coordinator?: boolean }) {
+/** 32px avatar + name, shown once per sender cluster. */
+function ClusterLabel({ bot, name, color, coordinator = false }: { bot?: Bot; name: string; color: Bot["color"]; coordinator?: boolean }) {
   const { state } = useStore();
   const coordinatorSettings = state.config?.coordinator;
   return (
@@ -68,22 +67,12 @@ function ClusterLabel({ bot, name, color, coordinator = false }: { bot?: Bot; na
       {coordinator ? (
         <CoordinatorAvatar avatarUrl={coordinatorSettings?.avatarUrl} avatarCrop={coordinatorSettings?.avatarCrop} size={32} />
       ) : bot ? (
-        <BotAvatar
-          bot={bot}
-          state={normalizeState(bot.mascotExpression) ?? "happy"}
-          size={32}
-          motion="none"
-          motionKey={0}
-          animated={false}
-        />
+        <BotAvatar bot={bot} size={32} />
       ) : (
-        <MausAvatar
-          color={color as Bot["color"]}
-          state="happy"
+        <AgentInitialsAvatar
+          name={name}
+          color={color}
           size={32}
-          motion="none"
-          motionKey={0}
-          animated={false}
         />
       )}
       <span className="text-[11px] font-medium text-ink-secondary">{coordinator ? "Coordinator" : name}</span>
@@ -702,7 +691,7 @@ export function GroupView({ group }: { group: Group }) {
   };
 
   // Match the channel list's bounded, overlapping member stack.
-  const memberMauses = members.slice(0, 2).map((b) => (
+  const memberAvatars = members.slice(0, 2).map((b) => (
     <span
       key={b.id}
       title={`${b.name}${group.busyBotId === b.id ? " — working…" : ""}`}
@@ -711,13 +700,13 @@ export function GroupView({ group }: { group: Group }) {
         group.busyBotId === b.id && "ring-2 ring-accent/50 ring-offset-1 ring-offset-app",
       )}
     >
-      <BotAvatar bot={b} state={normalizeState(b.mascotExpression) ?? "happy"} size={20} animated={false} />
+       <BotAvatar bot={b} size={20} />
       {group.busyBotId === b.id && (
         <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full border border-app bg-accent" />
       )}
     </span>
   ));
-  const hiddenMemberCount = Math.max(0, members.length - memberMauses.length);
+  const hiddenMemberCount = Math.max(0, members.length - memberAvatars.length);
   const hiddenMembersBadge = hiddenMemberCount > 0 ? (
     <span
       title={`${hiddenMemberCount} more ${hiddenMemberCount === 1 ? "agent" : "agents"}`}
@@ -730,7 +719,7 @@ export function GroupView({ group }: { group: Group }) {
   const memberStack = (
     <span className="flex size-8 shrink-0 items-center justify-center overflow-hidden">
       <span className="flex max-w-full items-center -space-x-3">
-        {memberMauses}
+        {memberAvatars}
         {hiddenMembersBadge}
       </span>
     </span>

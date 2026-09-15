@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-/** Bots either use the animated mascot or a circular custom image. */
-export const BOT_AVATAR_CROPS = ["mascot", "circle"] as const;
+/** Agents either use generated initials or a circular custom image. */
+export const BOT_AVATAR_CROPS = ["initials", "circle"] as const;
 export const botAvatarCropSchema = z.enum(BOT_AVATAR_CROPS);
 export type BotAvatarCrop = z.infer<typeof botAvatarCropSchema>;
 
@@ -47,7 +47,7 @@ export function botAvatarProfile(value: BotAvatarProfileInput): BotAvatarProfile
   // images while migrating their retired presentation to the one image shape.
   const retiredImageCrop = value.avatarCrop === "rounded" || value.avatarCrop === "square";
   const profile: BotAvatarProfile = {
-    avatarCrop: crop.data ?? (url.success && retiredImageCrop ? "circle" : "mascot"),
+    avatarCrop: crop.data ?? (url.success && retiredImageCrop ? "circle" : "initials"),
   };
   if (url.success) profile.avatarUrl = url.data;
   return profile;

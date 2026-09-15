@@ -3900,7 +3900,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse): 
       const saved = saveImage(generated.bytes, generated.mime);
       const avatarUrl = botAvatarUrlFromStoredPath(saved.path);
       if (!avatarUrl) throw Object.assign(new Error("Could not store the generated avatar"), { status: 500 });
-      const avatarCrop = initialAvatar.avatarCrop && initialAvatar.avatarCrop !== "mascot"
+      const avatarCrop = initialAvatar.avatarCrop && initialAvatar.avatarCrop !== "initials"
         ? initialAvatar.avatarCrop
         : "circle";
       const bot = store.patchBot(current.id, { avatarUrl, avatarCrop });
@@ -4015,7 +4015,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse): 
           else section = trimmed;
         }
       }
-      for (const key of ["modelSelection", "unread", "computer", "color", "mascotExpression", "pinned", "hidden"] as const) {
+      for (const key of ["modelSelection", "unread", "computer", "color", "pinned", "hidden"] as const) {
         if (body[key] !== undefined) patch[key] = body[key];
       }
       // one pinned message per thread; null/"" clears. The id is not

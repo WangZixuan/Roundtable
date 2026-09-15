@@ -33,8 +33,7 @@ import {
   type Message,
 } from "@/state/store";
 import { EngineSetup } from "./EngineSetup";
-import { BotAvatar, MausAvatar, STANDARD_BOT_AVATAR_SIZE } from "./Avatar";
-import { stateForBot } from "@/lib/mascot";
+import { AgentInitialsAvatar, BotAvatar, STANDARD_BOT_AVATAR_SIZE } from "./Avatar";
 import { hasVisibleStreamingText, showWorkingDots } from "@/lib/turn-tail";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { OptionCard, shouldHideOnboardingCard } from "./OptionCard";
@@ -469,7 +468,7 @@ function ActivityChip({ message }: { message: Message }) {
           title={`Open the conversation with ${comm.withName}`}
           className="flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
         >
-          <MausAvatar color={comm.withColor} state="happy" size={16} />
+          <AgentInitialsAvatar name={comm.withName} color={comm.withColor} size={16} />
           <span className="max-w-[480px] truncate">{tool.name}</span>
           <ChevronRight size={13} />
         </button>
@@ -915,7 +914,6 @@ export function ChatView({ bot }: { bot: Bot }) {
   const visibleStreaming = hasVisibleStreamingText(streaming) ? streaming : undefined;
   const reasoning = stream.reasoning[bot.threadId];
   const provisioning = state.provisioning[bot.id];
-  const mascotMotion = state.mascotMotion?.botId === bot.id ? state.mascotMotion : null;
   const [findOpen, setFindOpen] = useState(false);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   useEffect(() => setFindOpen(false), [bot.threadId]);
@@ -1161,11 +1159,7 @@ export function ChatView({ bot }: { bot: Bot }) {
           >
             <BotAvatar
               bot={bot}
-              state={stateForBot({ ...bot, messages })}
               size={STANDARD_BOT_AVATAR_SIZE}
-              motion={mascotMotion?.kind ?? "none"}
-              motionKey={mascotMotion?.nonce ?? 0}
-              animated={false}
             />
           </button>
           <span className="min-w-0 truncate select-none text-[15px] font-semibold text-ink">{bot.name}</span>

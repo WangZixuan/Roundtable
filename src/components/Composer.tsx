@@ -4,7 +4,7 @@ import { ArrowUp, Check, Clock, Folder, FolderOpen, Hand, Lock, Mic, Paperclip, 
 import { api, useStore, visibleMessages, type Bot, type Group, type Message } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { useComposerDraft } from "@/lib/drafts";
-import { MausAvatar } from "./Avatar";
+import { BotAvatar } from "./Avatar";
 import { ComposerAttachments, pathForFile } from "./ComposerAttachments";
 import {
   composeMessage,
@@ -15,7 +15,6 @@ import {
   pasteAttachment,
   type Attachment,
 } from "@/lib/composer-attachments";
-import { normalizeState } from "@/lib/mascot";
 import { PendingApprovalActions, PendingApprovalPanel, pendingApprovals } from "./PendingApproval";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { ReplyQuote } from "./ReplyQuote";
@@ -556,11 +555,7 @@ export function Composer({
                 )}
               >
                 {peer.bot ? (
-                  <MausAvatar
-                    color={peer.bot.color}
-                    state={normalizeState(peer.bot.mascotExpression) ?? "happy"}
-                    size={24}
-                  />
+                  <BotAvatar bot={peer.bot} size={24} />
                 ) : (
                   <span className="flex size-6 items-center justify-center rounded-full bg-raised text-ink-secondary">
                     <Users size={14} aria-hidden="true" />

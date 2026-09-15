@@ -1,7 +1,7 @@
 import { ChevronDown, FolderOpen, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api, useStore, type Bot } from "@/state/store";
-import { stateForBot } from "@/lib/mascot";
+import { agentColorForName } from "../../shared/agent-avatar";
 import { ModelPicker } from "./ModelPicker";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { cn } from "@/lib/cn";
@@ -322,7 +322,6 @@ export function AgentProfilePage({ bot }: { bot: Bot }) {
         | "description"
         | "notifications"
         | "color"
-        | "mascotExpression"
         | "avatarUrl"
         | "avatarCrop"
         | "autoApprove"
@@ -333,8 +332,6 @@ export function AgentProfilePage({ bot }: { bot: Bot }) {
       >
     >,
   ) => dispatch({ type: "updateBot", botId: bot.id, patch: p });
-  const activeState = stateForBot(bot);
-  const mascotMotion = state.mascotMotion?.botId === bot.id ? state.mascotMotion : null;
   const engine = state.instances.find((instance) => instance.instanceId === bot.modelSelection.instanceId);
   const canCoordinate = engine?.capabilities?.agentsMcp === true;
   const desktop = capabilities.host.label !== "Browser";
@@ -352,12 +349,7 @@ export function AgentProfilePage({ bot }: { bot: Bot }) {
 
       <div className="flex-1 overflow-y-auto px-6 pb-8">
         <div className="mx-auto flex w-full max-w-[760px] flex-col gap-4 pt-6">
-          <BotProfileAvatarCard
-            bot={bot}
-            activeState={activeState}
-            mascotMotion={mascotMotion}
-            onPatch={patch}
-          />
+          <BotProfileAvatarCard bot={bot} onPatch={patch} />
 
           <Field label="Name">
             <input
@@ -552,7 +544,7 @@ export function NewAgentPage() {
     title: "",
     description: "",
     notifications: true,
-    color: "green",
+    color: agentColorForName(""),
     unread: false,
     modelSelection: {
       instanceId: firstEngine?.instanceId ?? "",
@@ -572,6 +564,11 @@ export function NewAgentPage() {
   // SAFETY: Buttons inside the Electron drag region must remain interactive.
   const noDragStyle = desktop ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties) : undefined;
   const patchDraft = (patch: Partial<Bot>) => setDraft((current) => ({ ...current, ...patch }));
+  const updateDraftName = (name: string) => setDraft((current) => ({
+    ...current,
+    name,
+    color: current.color === agentColorForName(current.name) ? agentColorForName(name) : current.color,
+  }));
 
   useEffect(() => {
     if (draft.modelSelection.instanceId || !firstEngine) return;
@@ -602,7 +599,6 @@ export function NewAgentPage() {
           description: draft.description.trim(),
           notifications: draft.notifications,
           color: draft.color,
-          mascotExpression: draft.mascotExpression,
           avatarUrl: draft.avatarUrl,
           avatarCrop: draft.avatarCrop,
           modelSelection: draft.modelSelection,
@@ -636,8 +632,8 @@ export function NewAgentPage() {
       </div>
       <div className="flex-1 overflow-y-auto px-6 pb-8">
         <div className="mx-auto flex w-full max-w-[760px] flex-col gap-4 pt-6">
-          <BotProfileAvatarCard bot={draft} activeState={stateForBot(draft)} mascotMotion={null} onPatch={patchDraft} />
-          <Field label="Name"><input autoFocus className={inputCls} maxLength={BOT_PROFILE_LIMITS.name} value={draft.name} onChange={(event) => patchDraft({ name: event.target.value })} placeholder="Agent name" /></Field>
+          <BotProfileAvatarCard bot={draft} onPatch={patchDraft} />
+          <Field label="Name"><input autoFocus className={inputCls} maxLength={BOT_PROFILE_LIMITS.name} value={draft.name} onChange={(event) => updateDraftName(event.target.value)} placeholder="Agent name" /></Field>
           <Field label="Title"><input className={inputCls} maxLength={BOT_PROFILE_LIMITS.title} value={draft.title} onChange={(event) => patchDraft({ title: event.target.value })} placeholder="Describe what your agent does" /></Field>
           <Field label="Description"><textarea className={cn(inputCls, "min-h-[120px] resize-y")} maxLength={BOT_PROFILE_LIMITS.description} value={draft.description} onChange={(event) => patchDraft({ description: event.target.value })} placeholder="What this agent is for" /></Field>
           <div className="rounded-xl bg-card p-4"><ModelPicker bot={draft} contained onChange={(modelSelection) => patchDraft({ modelSelection })} label={<div><div className="text-[15px] font-medium text-ink">Model</div><div className="mt-0.5 text-[13px] text-ink-secondary">Which provider and model this agent runs on</div></div>} /></div>

@@ -783,10 +783,10 @@ describe("harness HTTP API", () => {
     expect((await api("PATCH", `/api/bots/${bot.id}`, { avatarCrop: "rounded" })).status).toBe(400);
     expect((await api("PATCH", `/api/bots/${bot.id}`, { avatarCrop: "square" })).status).toBe(400);
 
-    const cleared = await api("PATCH", `/api/bots/${bot.id}`, { avatarUrl: null, avatarCrop: "mascot" });
+    const cleared = await api("PATCH", `/api/bots/${bot.id}`, { avatarUrl: null, avatarCrop: "initials" });
     expect(cleared.status).toBe(200);
     expect(cleared.body.bot.avatarUrl).toBeNull();
-    expect(cleared.body.bot.avatarCrop).toBe("mascot");
+    expect(cleared.body.bot.avatarCrop).toBe("initials");
   });
 
   it("persists only app-owned Coordinator avatars and supported crop shapes", async () => {
@@ -863,14 +863,14 @@ describe("harness HTTP API", () => {
 
       const cleared = await api("PATCH", `/api/bots/${bot.id}/profile`, {
         avatarUrl: null,
-        avatarCrop: "mascot",
+        avatarCrop: "initials",
         voice: "",
         speakReplies: false,
       });
       expect(cleared.status).toBe(200);
       expect(cleared.body.bot).toMatchObject({
         avatarUrl: null,
-        avatarCrop: "mascot",
+        avatarCrop: "initials",
         voice: "",
         speakReplies: false,
       });
@@ -889,7 +889,6 @@ describe("harness HTTP API", () => {
       title: "Project Lead",
       description: "Coordinates the crew",
       color: "purple",
-      mascotExpression: "focused",
       autoApprove: true,
       alwaysAllow: ["Bash:git"],
     });
@@ -911,7 +910,7 @@ describe("harness HTTP API", () => {
     expect(exported.body).toMatchObject({ format: "openmaus.team", version: 2, team: { name: "Field Team" } });
     expect(exported.body.team.members.map((member: { name: string }) => member.name)).toEqual(visibleNames);
     expect(exported.body.team.members).toEqual(expect.arrayContaining([
-      expect.objectContaining({ key: "mira", name: "Mira", title: "Project Lead", appearance: { color: "purple", mascotExpression: "focused" } }),
+      expect.objectContaining({ key: "mira", name: "Mira", title: "Project Lead", appearance: { color: "purple" } }),
       expect.objectContaining({ key: "scout", name: "Scout", title: "Researcher", appearance: { color: "cyan" } }),
     ]));
     expect(exported.body.team).not.toHaveProperty("room");

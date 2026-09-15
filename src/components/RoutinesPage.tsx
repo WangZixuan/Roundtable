@@ -20,7 +20,7 @@ import {
 
 import { BotAvatar } from "@/components/Avatar";
 import { cn } from "@/lib/cn";
-import { MAUS_COLORS, type MausState } from "@/lib/mascot";
+import { AGENT_COLORS } from "../../shared/agent-avatar";
 import type { Routine, RoutineInput, RoutineRun, RoutineRunOn, RoutineRunStatus } from "@/lib/routines";
 import { setTitleBarBackdrop } from "@/lib/skins";
 import { api, useStore, type Bot } from "@/state/store";
@@ -97,7 +97,7 @@ function canToggleRoutine(routine: Routine) {
   return routine.schedule.type === "daily" || routine.schedule.at > Date.now();
 }
 
-function statusState(status: RoutineRunStatus): MausState {
+function statusState(status: RoutineRunStatus): string {
   switch (status) {
     case "queued":
       return "drowsy";
@@ -180,7 +180,7 @@ function projectedItems(routines: Routine[], runs: RoutineRun[], from: number, t
 
 function RoutineCard({ item, bot, compact, onOpen }: { item: CalendarItem; bot: Bot; compact: boolean; onOpen: () => void }) {
   const status = item.run?.status;
-  const color = MAUS_COLORS[bot.color];
+  const color = AGENT_COLORS[bot.color];
   const title = item.routine?.name ?? item.run?.routineName ?? "Routine";
   const animated = status === "running" || status === "waiting";
   return (
@@ -494,7 +494,7 @@ function RoutineDetails({ item, bot, onClose, onEdit }: { item: CalendarItem; bo
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <div className="w-full max-w-[520px] overflow-hidden rounded-2xl border border-hairline/60 bg-panel shadow-2xl">
-        <div className="relative overflow-hidden border-b border-hairline/40 px-5 py-5" style={{ background: `linear-gradient(135deg, color-mix(in srgb, ${MAUS_COLORS[bot.color]} 28%, #111), #111)` }}>
+        <div className="relative overflow-hidden border-b border-hairline/40 px-5 py-5" style={{ background: `linear-gradient(135deg, color-mix(in srgb, ${AGENT_COLORS[bot.color]} 28%, #111), #111)` }}>
           <button onClick={onClose} className="absolute right-3 top-3 rounded-lg p-2 text-white/60 hover:bg-white/10 hover:text-white"><X size={18} /></button>
           <div className="flex items-center gap-4 pr-10">
             <BotAvatar bot={bot} state={run ? statusState(run.status) : "idle"} size={72} animated={run?.status === "running" || run?.status === "waiting"} label={bot.name} />

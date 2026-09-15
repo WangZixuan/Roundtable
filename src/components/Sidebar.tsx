@@ -32,7 +32,6 @@ import {
 import { api, useStore, formatTime, visibleMessages, type Bot, type Group } from "@/state/store";
 
 import { BotAvatar, InitialsAvatar, STANDARD_BOT_AVATAR_SIZE } from "./Avatar";
-import { stateForBot } from "@/lib/mascot";
 import { useUpdaterState } from "@/lib/updater";
 import { cn } from "@/lib/cn";
 import { skillRecorderEnabled } from "@/lib/feature-flags";
@@ -761,8 +760,8 @@ function BotListItem({
     if (iconOnly) setRenaming(false);
   }, [iconOnly]);
   const comfortable = density === "comfortable";
-  // Fill the icon-only selection tile: the mascot's SVG retains internal
-  // breathing room for motion effects, so 36px made its visible halo too small.
+  // Fill the icon-only selection tile without shrinking the initials below
+  // the size used in the expanded navigation.
   const avatarSize = iconOnly ? 44 : density === "compact" ? 32 : STANDARD_BOT_AVATAR_SIZE;
   // the visible branch, so a version switch changes the row with the chat
   const visible = visibleMessages(bot);
@@ -782,7 +781,6 @@ function BotListItem({
     <>
       <BotAvatar
         bot={bot}
-        state={stateForBot({ ...bot, messages: visible })}
         size={avatarSize}
         motion="none"
         motionKey={0}

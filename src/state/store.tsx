@@ -14,7 +14,7 @@ import {
   type ReactNode,
 } from "react";
 import type { CloudBackend, EffortLevel } from "../../server/contracts.ts";
-import type { MausColor, MausMotion } from "@/lib/mascot";
+import type { AgentColor } from "../../shared/agent-avatar";
 import type { BotAvatarCrop } from "../../shared/bot-avatar";
 import type { CoordinatorAvatarCrop } from "../../shared/bot-avatar";
 import type { Routine, RoutineInput, RoutineRun } from "@/lib/routines";
@@ -26,7 +26,7 @@ import { createBotPatchQueue, type BotUpdatePatch } from "./bot-patch-queue";
 import { skillRecorderEnabled } from "@/lib/feature-flags";
 import { orchestrationFetch, subscribeOrchestrationEvents } from "@/lib/orchestration";
 
-export type { MausColor } from "@/lib/mascot";
+export type { AgentColor } from "../../shared/agent-avatar";
 
 export interface OptionCardData {
   title: string;
@@ -99,9 +99,9 @@ export interface Message {
   /** Flat reply reference for an inline quote; unrelated to branch ancestry. */
   replyToId?: string;
   /** rooms: which member said this (sender attribution). */
-  from?: { botId: string; name: string; color: MausColor };
+  from?: { botId: string; name: string; color: AgentColor };
   /** comm chips: "Messaged @X" linking to the bot⇄bot channel. */
-  comm?: { groupId: string; withBotId: string; withName: string; withColor: MausColor };
+  comm?: { groupId: string; withBotId: string; withName: string; withColor: AgentColor };
   /** sent while the bot was mid-turn; auto-sends when the turn settles.
    * Rendered only while the bot is busy, so a flag stranded by a server
    * restart never shows a promise nothing will keep. */
@@ -289,11 +289,10 @@ export interface Bot {
   title: string;
   description: string;
   notifications: boolean;
-  color: MausColor;
-  mascotExpression?: string | null;
+  color: AgentColor;
   /** App-owned image attachment used for this bot's profile. */
   avatarUrl?: string | null;
-  /** Mascot, or the crop applied to avatarUrl. */
+  /** Initials, or the crop applied to avatarUrl. */
   avatarCrop?: BotAvatarCrop;
   unread: boolean;
   busy?: boolean;
@@ -504,11 +503,6 @@ export interface AppState {
   focusMessage: { threadId: string; messageId: string; nonce: number; consumed: boolean } | null;
   connected: boolean;
   error: string | null;
-  mascotMotion: {
-    botId: string;
-    nonce: number;
-    kind: Exclude<MausMotion, "none">;
-  } | null;
   /** 1:1 queue-fallback lines waiting for drain; keyed by threadId.
    * Each entry is identified by the server queueId, not by text. */
   pendingQueued: Record<string, Array<{ queueId: string; text: string }>>;
@@ -654,21 +648,6 @@ function mergeMessages(existing: Message[], incoming: Message[]): Message[] {
   // Existing rows may include a newer SSE patch than the REST page snapshot.
   for (const message of existing) byId.set(message.id, message);
   return [...byId.values()].sort((a, b) => a.at - b.at);
-}
-
-function withMascotMotion(
-  state: AppState,
-  botId: string,
-  kind: Exclude<MausMotion, "none">,
-): AppState {
-  return {
-    ...state,
-    mascotMotion: {
-      botId,
-      nonce: (state.mascotMotion?.nonce ?? 0) + 1,
-      kind,
-    },
-  };
 }
 
 function patchCard(state: AppState, botId: string, messageId: string, patch: Partial<OptionCardData>): AppState {
@@ -879,39 +858,31 @@ export function reducer(state: AppState, action: Action): AppState {
           groups: state.groups.map((g) => (g.id === action.id ? { ...g, unread: false } : g)),
         };
       }
-      return updateBot(
-        withMascotMotion({ ...state, activeView: "chat", selectedId: action.id }, action.id, "switch"),
-        action.id,
-        (b) => ({ ...b, unread: false }),
-      );
+      return updateBot({ ...state, activeView: "chat", selectedId: action.id }, action.id, (b) => ({ ...b, unread: false }));
     }
     // optimistic card settle; the server's message.patch confirms it later
     case "answerCard": {
       const bot = state.bots.find((candidate) => candidate.id === action.botId);
       const card = bot?.messages.find((message) => message.id === action.messageId)?.card;
-      return withMascotMotion(
-        patchCard(state, action.botId, action.messageId, {
-          answered: action.answer,
-          // talking past the first-run quiz hides it; live asks stay until resolved
-          ...(card?.requestId ? {} : { dismissed: true }),
-        }),
-        action.botId,
-        "working",
-      );
+      return patchCard(state, action.botId, action.messageId, {
+        answered: action.answer,
+        // talking past the first-run quiz hides it; live asks stay until resolved
+        ...(card?.requestId ? {} : { dismissed: true }),
+      });
     }
     case "dismissCard":
       return patchCard(state, action.botId, action.messageId, { dismissed: true });
     case "decideRequest":
       return state; // the server's request.resolved patch settles the card
     case "botAdded":
-      return withMascotMotion({
+      return {
         ...state,
         // An HTTP create/import response and its SSE broadcast can race. Fold
         // both paths without ever showing the same bot twice.
         bots: [action.bot, ...state.bots.filter((bot) => bot.id !== action.bot.id)],
         activeView: "chat",
         selectedId: action.bot.id,
-      }, action.bot.id, "arrive");
+      };
     case "deleteBot": {
       const bots = state.bots.filter((b) => b.id !== action.botId);
       const selectedId =
@@ -919,7 +890,7 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, bots, selectedId };
     }
     case "markUnread":
-      return updateBot(withMascotMotion(state, action.botId, "surprise"), action.botId, (b) => ({ ...b, unread: true }));
+      return updateBot(state, action.botId, (b) => ({ ...b, unread: true }));
     case "botPatched": {
       const before = state.bots.find((b) => b.id === action.bot.id);
       // Bot frames are complete except for their transcript. An unknown one
@@ -932,18 +903,9 @@ export function reducer(state: AppState, action: Action): AppState {
           bots: [{ ...action.bot, messages: action.bot.messages ?? [] }, ...state.bots],
         };
       }
-      const kind =
-        action.bot.unread && !before?.unread
-          ? "surprise"
-          : action.bot.busy === true && !before?.busy
-            ? "working"
-            : action.bot.busy === false && before?.busy
-              ? "celebrate"
-              : null;
-      const animated = kind ? withMascotMotion(state, action.bot.id, kind) : state;
       const switchedThread =
         typeof action.bot.threadId === "string" && action.bot.threadId !== before.threadId;
-      return updateBot(animated, action.bot.id, (b) => ({
+      return updateBot(state, action.bot.id, (b) => ({
         ...b,
         ...action.bot,
         // Ordinary bot patches omit messages and must preserve the current
@@ -959,7 +921,7 @@ export function reducer(state: AppState, action: Action): AppState {
     case "messageAdded": {
       const bot = state.bots.find((b) => b.threadId === action.threadId);
       if (!bot) {
-        // room thread — plain linear append, no branching/mascot machinery
+        // room thread — plain linear append, no branching machinery
         const group = state.groups.find((g) => g.threadId === action.threadId);
         if (!group) return state;
         if (group.messages.some((m) => m.id === action.message.id)) return state;
@@ -991,20 +953,7 @@ export function reducer(state: AppState, action: Action): AppState {
         }
         return { ...b, messages, lastMessage: action.message, activeLeafId: action.message.id };
       });
-      const motion =
-        action.message.kind === "options"
-          ? "thinking"
-          : action.message.kind === "activity"
-            ? action.message.tool?.ok === false
-              ? "failure"
-              : action.message.tool?.ok === true
-                ? "success"
-                : "working"
-            : action.message.role === "bot" && action.message.kind === "text"
-              ? "blink"
-              : null;
-      const animated = motion ? withMascotMotion(next, bot.id, motion) : next;
-      return animated;
+      return next;
     }
     case "messagePatched": {
       const bot = state.bots.find((b) => b.threadId === action.threadId);
@@ -1024,16 +973,7 @@ export function reducer(state: AppState, action: Action): AppState {
           ),
         };
       }
-      const motion =
-        action.message.kind === "activity"
-          ? action.message.tool?.ok === false
-            ? "failure"
-            : action.message.tool?.ok === true
-              ? "success"
-              : "working"
-          : null;
-      const next = motion ? withMascotMotion(state, bot.id, motion) : state;
-      return updateBot(next, bot.id, (b) => ({
+      return updateBot(state, bot.id, (b) => ({
         ...b,
         messages: b.messages.map((m) => (m.id === action.message.id ? action.message : m)),
         lastMessage: b.lastMessage?.id === action.message.id ? action.message : b.lastMessage,
@@ -1041,7 +981,7 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case "provisioning":
       return {
-        ...(action.on ? withMascotMotion(state, action.botId, "launch") : state),
+        ...state,
         provisioning: { ...state.provisioning, [action.botId]: action.on },
       };
     case "setModel":
@@ -1049,12 +989,7 @@ export function reducer(state: AppState, action: Action): AppState {
     case "connected":
       return { ...state, connected: action.value };
     case "error":
-      return {
-        ...(action.message && state.selectedId
-          ? withMascotMotion(state, state.selectedId, "alert")
-          : state),
-        error: action.message,
-      };
+      return { ...state, error: action.message };
     case "focusMessage":
       return {
         ...state,
@@ -1085,15 +1020,8 @@ export function reducer(state: AppState, action: Action): AppState {
         inspectorOpen: open ? false : state.inspectorOpen,
       };
     }
-    case "updateBot": {
-      const mascotChanged =
-        Object.prototype.hasOwnProperty.call(action.patch, "color") ||
-        Object.prototype.hasOwnProperty.call(action.patch, "mascotExpression");
-      const animated = mascotChanged
-        ? withMascotMotion(state, action.botId, "customize")
-        : state;
-      return updateBot(animated, action.botId, (b) => ({ ...b, ...action.patch }));
-    }
+    case "updateBot":
+      return updateBot(state, action.botId, (b) => ({ ...b, ...action.patch }));
     case "threadActive": {
       const bot = state.bots.find((b) => b.threadId === action.threadId);
       if (!bot) return state;
@@ -1153,9 +1081,9 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, pendingQueued };
     }
     case "send":
-      return withMascotMotion(dismissOnboardingCard(state, action.botId), action.botId, "working");
+      return dismissOnboardingCard(state, action.botId);
     case "editMessage":
-      return withMascotMotion(state, action.botId, "working");
+      return state;
     case "newTask":
     case "switchTask":
     case "renameTask":
@@ -1214,7 +1142,6 @@ export const initialState: AppState = {
   focusMessage: null,
   connected: false,
   error: null,
-  mascotMotion: null,
   pendingQueued: {},
   consumedQueueIds: {},
 };
@@ -1232,7 +1159,7 @@ export async function api(path: string, init?: RequestInit): Promise<any> {
 
 /** Per-frame stream state lives in its OWN context: token frames update only
  * the components that read this hook (the chat's streaming tail), while every
- * useStore consumer — sidebar, mascots, pickers, the settled transcript —
+ * useStore consumer — sidebar, avatars, pickers, the settled transcript —
  * keeps its render tree untouched during a stream. */
 interface StreamState {
   /** in-flight assistant text per threadId */

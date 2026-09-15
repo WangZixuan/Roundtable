@@ -56,7 +56,7 @@ describe("parseBotProfilePatch (both modes)", () => {
   it("maps an avatarCrop issue to the readable message", () => {
     expect(parseBotProfilePatch({ avatarCrop: "hexagon" } as never, true)).toEqual({
       ok: false,
-      error: "avatarCrop must be mascot or circle",
+      error: "avatarCrop must be initials or circle",
     });
   });
 });
