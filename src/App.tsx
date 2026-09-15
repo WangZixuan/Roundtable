@@ -4,7 +4,7 @@ import { StoreProvider, useStore } from "@/state/store";
 import { Onboarding } from "@/components/Onboarding";
 import { emailGateDone, initAnalytics } from "@/lib/analytics";
 import { unreadConversationCount } from "@/lib/unread";
-import { Sidebar } from "@/components/Sidebar";
+import { WorkspaceNavigation } from "@/components/WorkspaceNavigation";
 import { ChatView } from "@/components/ChatView";
 import { GroupView } from "@/components/GroupView";
 import { UpdateBanner } from "@/components/UpdateBanner";
@@ -186,7 +186,7 @@ function Shell() {
           className="absolute inset-0 z-30 bg-black/50 md:hidden"
         />
       )}
-      <Sidebar
+      <WorkspaceNavigation
         open={drawerOpen}
         onClose={() => {
           setDrawerOpen(false);
