@@ -8,7 +8,6 @@ import {
   type ModelSelection,
 } from "@/state/store";
 import { cn } from "@/lib/cn";
-import { availableModelInstances } from "@/lib/engine-rail";
 import { imageAttachmentFromFile } from "@/lib/composer-attachments";
 import { botAvatarUrlFromStoredPath, COORDINATOR_AVATAR_CROPS, type CoordinatorAvatarCrop } from "../../shared/bot-avatar";
 import { CoordinatorAvatar } from "./Avatar";
@@ -103,10 +102,8 @@ function SelectionFields({
 }) {
   const { state } = useStore();
   const instances = state.instances;
-  const available = availableModelInstances(instances);
-  const instance = value
-    ? available.find((candidate) => candidate.instanceId === value.instanceId)
-    : available[0];
+  const available = instances.filter((instance) => instance.snapshot.state === "available");
+  const instance = available.find((candidate) => candidate.instanceId === value?.instanceId) ?? available[0];
   const selected = value ?? (instance ? { instanceId: instance.instanceId, model: instance.models.default } : undefined);
   const effortLevels = instance?.capabilities?.effortLevels ?? [];
 
@@ -126,19 +123,15 @@ function SelectionFields({
         >
           {optional && <option value="">None</option>}
           {!available.length && <option value="">No ready engines</option>}
-          {value && !available.some((candidate) => candidate.instanceId === value.instanceId) && (
-            <option value={value.instanceId} disabled>Current provider unavailable</option>
-          )}
-          {available.map((candidate) => <option key={candidate.instanceId} value={candidate.instanceId}>{candidate.displayName} · Ready</option>)}
+          {instances.map((candidate) => <option key={candidate.instanceId} value={candidate.instanceId} disabled={candidate.snapshot.state !== "available"}>{candidate.displayName} · {candidate.snapshot.state === "available" ? (candidate.snapshot.authenticated === false ? "Sign-in required" : "Ready") : "Unavailable"}</option>)}
         </select>
         <select
           aria-label={`${label} model`}
-          disabled={!instance || !selected}
+          disabled={!selected}
           value={selected?.model ?? ""}
           onChange={(event) => selected && onChange({ ...selected, model: event.target.value })}
           className="rounded-lg border border-hairline/40 bg-inset px-2.5 py-2 text-[13px] text-ink disabled:opacity-50"
         >
-          {!instance && selected && <option value={selected.model}>Current model unavailable</option>}
           {instance?.models.options.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
         </select>
       </div>

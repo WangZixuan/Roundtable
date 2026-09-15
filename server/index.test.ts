@@ -321,7 +321,7 @@ describe("harness HTTP API", () => {
     expect((await fetch(`${BASE}/api/health`)).status).toBe(200);
   });
 
-  it("seeds the default role bots with prompts and greetings", async () => {
+  it("seeds the default role bots and their shared getting-started channel", async () => {
     const { status, body } = await api("GET", "/api/bots");
     expect(status).toBe(200);
     for (const name of ["Reviewer", "Planner", "Executor"]) {
@@ -330,6 +330,17 @@ describe("harness HTTP API", () => {
       expect(bot.description.length).toBeGreaterThan(0);
       expect(bot.messages.length).toBeGreaterThanOrEqual(2);
     }
+    const channel = body.groups.find((group: { name: string }) => group.name === "Getting Started");
+    expect(channel).toBeDefined();
+    expect(channel.memberIds).toHaveLength(3);
+    const members = body.bots.filter((bot: { id: string }) => channel.memberIds.includes(bot.id));
+    expect(members.map((bot: { name: string }) => bot.name).sort()).toEqual(["Executor", "Planner", "Reviewer"]);
+    expect(channel.setupCompletedAt).toEqual(expect.any(Number));
+    expect(channel.messages[0]).toMatchObject({
+      author: "coordinator",
+      kind: "text",
+      text: expect.stringContaining("Welcome to your starter team"),
+    });
   });
 
   it("projects privacy-safe live team-map metadata", async () => {

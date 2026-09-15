@@ -54,6 +54,14 @@ validation. Each inherits the application's default provider and model. Existing
 fleets are not changed, and removed starter bots are not recreated while other
 bots remain.
 
+The **Getting Started** channel includes all three starter bots, a shared
+bulletin explaining their roles, and a welcome message with example requests.
+Mention an individual bot or use `@everyone` to involve the whole team. The
+channel is ready to open without additional setup; choose a working folder
+before requesting file changes. Creating the channel does not run any bots.
+Existing channels are untouched, and deleting the starter channel does not
+cause it to reappear on restart.
+
 Edit each bot's instructions under **Agent profile > Description**. The runtime
 includes **Title** as its role and **Description** as persona instructions in
 direct chats and channel tasks; these fields are saved in `~/.Roundtable/bots.json`
@@ -61,21 +69,6 @@ direct chats and channel tasks; these fields are saved in `~/.Roundtable/bots.js
 `server/default-bots.ts`. Role instructions guide behavior, not enforce tool
 permissions; normal approval controls still apply. The Planner bot does not
 replace the system Coordinator.
-
-## Choose a bot's provider and model
-
-Open the model picker beside the message box or under **Agent profile > Model**.
-Select a provider icon in the **Cloud** or **Local** rail, then select a model to
-save both choices for that bot. Selecting a provider icon alone only previews its
-models. For GitHub Copilot, select **Github Copilot cli** and then a model from its
-catalog. The picker only lists ready providers with returned models; cloud
-providers requiring sign-in are hidden, while local-only providers do not need
-cloud sign-in. Use **Settings > Engines > Set CLI...** if an installed CLI is not
-detected. Unavailable providers remain visible in Engines for configuration.
-
-Stop any active turn before switching providers. Provider switches clear the old
-provider's reasoning-effort setting. Coordinator models are configured separately
-under **Settings > Coordinator**.
 
 ## Validate a change
 

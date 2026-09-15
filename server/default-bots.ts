@@ -38,3 +38,27 @@ export const DEFAULT_BOT_PROFILES = [
     ].join("\n"),
   },
 ] satisfies ReadonlyArray<Pick<BotRecord, "name" | "title" | "description">>;
+
+export const DEFAULT_STARTER_CHANNEL = {
+  name: "Getting Started",
+  bulletin: "Plan with @Planner, implement with @Executor, and review with @Reviewer. Use @everyone to involve the whole team. Keep work within the user's requested scope.",
+  welcome: [
+    "## Welcome to your starter team",
+    "",
+    "This channel brings three specialized bots into one shared conversation:",
+    "- **Planner** explores the goal and proposes tasks, dependencies, and acceptance criteria without changing files.",
+    "- **Executor** carries out authorized work and validates the result.",
+    "- **Reviewer** examines the deliverable and reports actionable findings without editing files.",
+    "",
+    "Mention a bot to direct a request, or use **@everyone** to involve all three. The system **Coordinator** organizes the work; the Planner is a teammate, not the Coordinator.",
+    "",
+    "### Try it",
+    "Start with: `@Planner Help me plan a small project. Ask about my goal first; do not change any files.`",
+    "",
+    "Once you agree on a plan, ask `@Executor Implement the agreed plan`, then `@Reviewer Review the changes against our acceptance criteria`.",
+    "",
+    "For a read-only team exercise, try: `@everyone Propose a small project idea, outline its implementation steps, and review the plan for gaps. Do not modify files or run commands.`",
+    "",
+    "Before working on files, choose the channel's working folder. You can change each bot's provider, model, and Description in its Agent profile. Nothing runs until you send a request; normal approval controls still apply.",
+  ].join("\n"),
+};

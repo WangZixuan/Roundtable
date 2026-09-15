@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Check, ChevronDown, ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { useStore, type Bot, type InstanceInfo, type ModelSelection } from "@/state/store";
 import { filterCustomModels, partitionCustomModels, suggestedModels } from "@/lib/custom-models";
-import { availableModelInstances, isCustomOnly, splitEngineRail } from "@/lib/engine-rail";
+import { isCustomOnly, splitEngineRail } from "@/lib/engine-rail";
 import { ProviderMark } from "./ProviderIcons";
 import { EngineSetup, needsCli, needsSignIn } from "./EngineSetup";
 import { EngineGroupLabel } from "./EngineGroupLabel";
@@ -30,22 +30,19 @@ function ModelRow({
   option,
   current,
   defaultId,
-  disabled,
   onPick,
 }: {
   option: ModelOption;
   current: boolean;
   defaultId: string;
-  disabled: boolean;
   onPick: () => void;
 }) {
   return (
     <button
       type="button"
-      disabled={disabled}
       onClick={onPick}
       className={cn(
-        "flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] text-ink hover:bg-control/60 disabled:cursor-not-allowed disabled:opacity-50",
+        "flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] text-ink hover:bg-control/60",
         current && "bg-control",
       )}
     >
@@ -122,13 +119,9 @@ export function ModelPicker({
 
   const selection = bot.modelSelection;
   const active = state.instances.find((instance) => instance.instanceId === selection.instanceId);
-  const availableInstances = availableModelInstances(state.instances);
-  const availableActive = availableInstances.find((instance) => instance.instanceId === selection.instanceId);
-  const selectionIsAvailable = Boolean(availableActive?.models.options.some((option) => option.id === selection.model));
+  const selectionIsAvailable = Boolean(active?.models.options.some((option) => option.id === selection.model));
   const railInstance =
-    availableInstances.find((instance) => instance.instanceId === (railId ?? selection.instanceId)) ??
-    availableActive ??
-    availableInstances[0];
+    state.instances.find((instance) => instance.instanceId === (railId ?? selection.instanceId)) ?? state.instances[0];
 
   useEffect(() => {
     if (open) void refreshInstances();
@@ -162,7 +155,7 @@ export function ModelPicker({
   const openFor = (instance: InstanceInfo | undefined) => {
     const official = instance?.models.options.filter((option) => !option.custom) ?? [];
     const selectedIsCustom = instance?.models.options.some(
-      (option) => instance?.instanceId === selection.instanceId && option.id === selection.model && option.custom,
+      (option) => option.id === selection.model && option.custom,
     );
     setPane(selectedIsCustom || isCustomOnly(instance) || official.length === 0 ? "custom" : "main");
     resetList();
@@ -207,7 +200,6 @@ export function ModelPicker({
     : false;
   const canOpenCustom = Boolean(railInstance && !needsCli(railInstance));
   const canReturnToOfficial = official.length > 0 && !isCustomOnly(railInstance);
-  const providerSwitchBlocked = Boolean(bot.busy && railInstance?.instanceId !== selection.instanceId);
 
   const renderRow = (option: ModelOption) => (
     <ModelRow
@@ -215,7 +207,6 @@ export function ModelPicker({
       option={option}
       current={selection.instanceId === railInstance?.instanceId && selection.model === option.id}
       defaultId={railInstance?.models.default ?? ""}
-      disabled={providerSwitchBlocked}
       onPick={() => railInstance && pick(railInstance, option.id)}
     />
   );
@@ -227,7 +218,7 @@ export function ModelPicker({
         setRailId(selection.instanceId);
         setOpen((wasOpen) => {
           const next = !wasOpen;
-          if (next) openFor(availableActive ?? availableInstances[0]);
+          if (next) openFor(state.instances.find((instance) => instance.instanceId === selection.instanceId));
           return next;
         });
       }}
@@ -277,7 +268,7 @@ export function ModelPicker({
         <div
           data-model-picker-content
           role="dialog"
-          aria-label="Choose provider and model"
+          aria-label="Choose model"
           className={cn(
             "flex overflow-hidden rounded-2xl border border-hairline/50 bg-card",
             contained
@@ -290,7 +281,7 @@ export function ModelPicker({
         >
           <div className="flex w-14 shrink-0 flex-col gap-1 overflow-y-auto border-r border-hairline/40 bg-panel p-2">
             {(() => {
-              const { subscription, custom: local } = splitEngineRail(availableInstances);
+              const { subscription, custom: local } = splitEngineRail(state.instances);
               const railButton = (instance: InstanceInfo) => {
                 const selected = instance.instanceId === railInstance?.instanceId;
                 const attention = needsCli(instance) || needsSignIn(instance);
@@ -349,11 +340,6 @@ export function ModelPicker({
                       ? "Run this agent with a model already on your machine."
                       : "Choose a model for this bot."}
                   </div>
-                  {providerSwitchBlocked && (
-                    <p role="status" className="mt-2 text-[11.5px] text-warning">
-                      Stop the current turn before switching providers.
-                    </p>
-                  )}
                 </div>
 
                 {pane === "custom" && canReturnToOfficial && (
@@ -483,7 +469,7 @@ export function ModelPicker({
               </>
             ) : (
               <div className="px-4 py-5 text-[13px] text-ink-secondary">
-                No providers are available. Configure a provider in Settings &gt; Engines, then reopen this picker.
+                The selected provider is unavailable. Choose an available model in this agent&apos;s settings.
               </div>
             )}
           </div>

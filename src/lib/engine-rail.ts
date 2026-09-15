@@ -7,14 +7,6 @@ export function isCustomOnly(instance: { access?: InstanceInfo["access"] } | und
   return instance?.access === "custom";
 }
 
-export function availableModelInstances(instances: readonly InstanceInfo[]): InstanceInfo[] {
-  return instances.filter((instance) =>
-    instance.snapshot.state === "available" &&
-    (isCustomOnly(instance) || instance.snapshot.authenticated !== false) &&
-    instance.models.options.length > 0,
-  );
-}
-
 export function splitEngineRail<T>(instances: readonly T[]): {
   subscription: T[];
   custom: T[];
