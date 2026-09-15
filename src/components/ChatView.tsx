@@ -11,7 +11,6 @@ import {
   Clock,
   CircleUserRound,
   FilePenLine,
-  ListTree,
   Loader2,
   MessageSquareReply,
   Pin,
@@ -64,7 +63,6 @@ import {
   shouldContinueLoadingEarlier,
   tailWindowStart,
 } from "@/lib/transcript-window";
-import { timelineEvents } from "@/lib/taskTimeline";
 import { changedFilesFromTurnRows, type ChangedFile } from "@/lib/changed-files";
 import {
   commandRunCounts,
@@ -95,65 +93,6 @@ function DaySeparator({ at }: { at: number }) {
   return (
     <div className="py-3 text-center text-[13px] text-ink-secondary">
       {dayLabel(at)} {formatTime(at)}
-    </div>
-  );
-}
-
-function TaskTimeline({ messages, busy, activity }: { messages: Message[]; busy: boolean; activity?: Bot["activity"] }) {
-  const [open, setOpen] = useState(false);
-  const events = useMemo(() => timelineEvents(messages), [messages]);
-  if (events.length === 0) return null;
-  const recent = events.slice(-8);
-  const latest = recent.at(-1);
-  const needsAttention = activity === "waiting-on-you" || activity === "dead" || latest?.state === "failed";
-  if (!busy && !needsAttention) return null;
-  const stateLabel =
-    activity === "waiting-on-you"
-      ? "needs your input"
-      : needsAttention
-        ? "needs attention"
-        : "running";
-  return (
-    <div className="mx-auto w-full max-w-[900px] px-5 pt-1">
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        aria-expanded={open}
-        className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-[12.5px] text-ink-secondary hover:bg-raised/50 hover:text-ink"
-      >
-        <span className="flex min-w-0 items-center gap-1.5">
-          <ListTree size={14} className="shrink-0" />
-          <span className="shrink-0">Activity · {stateLabel}</span>
-          {!open && latest && (
-            <span className="truncate text-ink-secondary/70">· {latest.label}</span>
-          )}
-        </span>
-        <ChevronDown size={14} className={cn("transition-transform", open && "rotate-180")} />
-      </button>
-      {open && (
-        <ol className="ml-2 border-l border-hairline/40 pb-2 pl-3">
-          {recent.map((event) => (
-            <li key={event.id} className="relative flex items-center gap-2 py-1 text-[12px] text-ink-secondary">
-              <span
-                aria-hidden="true"
-                className={cn(
-                  "absolute -left-[17px] size-2 rounded-full",
-                  event.state === "failed"
-                    ? "bg-danger"
-                    : event.state === "complete"
-                      ? "bg-success"
-                      : event.state === "running"
-                        ? "animate-pulse bg-accent"
-                        : "bg-ink-secondary",
-                )}
-              />
-              <span className="sr-only">{event.state}: </span>
-              <span className="truncate">{event.label}</span>
-              <time className="ml-auto shrink-0 text-[11px] text-ink-secondary/70">{formatTime(event.at)}</time>
-            </li>
-          ))}
-        </ol>
-      )}
     </div>
   );
 }
@@ -841,12 +780,14 @@ const MessagesList = memo(function MessagesList({
           const changedFilesIndex = changedFiles.length > 0
             ? entry.rows.findLastIndex((turnEntry) => turnEntry.kind === "message" && turnEntry.message.role === "bot" && turnEntry.message.kind === "text")
             : -1;
-          const toolbarIndex = entry.rows.findLastIndex(
-            (turnEntry) =>
-              turnEntry.kind === "message" &&
-              turnEntry.message.role === "bot" &&
-              turnEntry.message.kind === "text",
-          );
+          const toolbarIndex = bot.busy && entry.turnId === liveTurnId
+            ? -1
+            : entry.rows.findLastIndex(
+                (turnEntry) =>
+                  turnEntry.kind === "message" &&
+                  turnEntry.message.role === "bot" &&
+                  turnEntry.message.kind === "text",
+              );
           return (
             <div className="flex flex-col gap-1">
               {entry.rows.map((turnEntry, index) => {
@@ -1244,8 +1185,6 @@ export function ChatView({ bot }: { bot: Bot }) {
           dispatch({ type: "updateBot", botId: bot.id, patch: { pinnedMessageId: "" } })
         }
       />
-
-      <TaskTimeline messages={messages} busy={bot.busy ?? false} activity={bot.activity} />
 
       {/* Messages */}
       <div
