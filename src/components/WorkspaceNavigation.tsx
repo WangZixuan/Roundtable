@@ -43,7 +43,9 @@ function directChats(agent: Agent): ChatRow[] {
       title: task.title || "New chat",
       owner: agent.name,
       kind: "direct",
-      at: preview.at || task.createdAt,
+      // Only the active thread has hydrated messages. Sorting on its message
+      // timestamp would move two rows every time the user switches chats.
+      at: task.createdAt,
       preview: active && agent.busy ? "Working…" : preview.text,
       unread: active && agent.unread,
       agent,
@@ -187,6 +189,7 @@ export function WorkspaceNavigation({ open, onClose }: { open: boolean; onClose:
   const [filter, setFilter] = useState<ChatFilter>("all");
   const [query, setQuery] = useState("");
   const [newChatOpen, setNewChatOpen] = useState(false);
+  const [pendingChatId, setPendingChatId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   const chats = useMemo(() => [
@@ -202,9 +205,14 @@ export function WorkspaceNavigation({ open, onClose }: { open: boolean; onClose:
   const selectedAgent = selectedGroup
     ? undefined
     : state.bots.find((agent) => agent.id === state.selectedId);
-  const selectedChatId = selectedGroup?.id
+  const persistedSelectedChatId = selectedGroup?.id
     ?? (selectedAgent ? `${selectedAgent.id}:${selectedAgent.threadId}` : undefined);
+  const selectedChatId = pendingChatId ?? persistedSelectedChatId;
+  useEffect(() => {
+    if (pendingChatId && pendingChatId === persistedSelectedChatId) setPendingChatId(null);
+  }, [pendingChatId, persistedSelectedChatId]);
   const openChat = (chat: ChatRow) => {
+    setPendingChatId(chat.id);
     if (chat.agent) {
       dispatch({ type: "select", id: chat.agent.id });
       if (chat.threadId !== chat.agent.threadId) dispatch({ type: "switchTask", botId: chat.agent.id, threadId: chat.threadId });
@@ -222,16 +230,21 @@ export function WorkspaceNavigation({ open, onClose }: { open: boolean; onClose:
   const dragStyle = desktop ? ({ WebkitAppRegion: "drag" } as React.CSSProperties) : undefined;
   // SAFETY: Interactive descendants of an Electron drag region must opt out explicitly.
   const noDragStyle = desktop ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties) : undefined;
+  const changeView = (nextView: WorkspaceView) => {
+    window.getSelection()?.removeAllRanges();
+    setNewChatOpen(false);
+    setView(nextView);
+  };
 
   const title = view === "chats" ? "Chats" : view === "channels" ? "Channels" : view === "tasks" ? "Tasks" : "Agents";
   return (
-    <aside className={cn("z-40 flex h-full shrink-0 border-r border-hairline/50 bg-panel max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:w-[344px] max-md:shadow-2xl", open ? "max-md:translate-x-0" : "max-md:-translate-x-full", "transition-transform md:w-[352px]") }>
+    <aside className={cn("z-40 flex h-full shrink-0 select-none border-r border-hairline/50 bg-panel max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:w-[344px] max-md:shadow-2xl", open ? "max-md:translate-x-0" : "max-md:-translate-x-full", "transition-transform md:w-[352px]") }>
       <nav className="flex w-16 flex-col items-center gap-2 border-r border-hairline/40 px-2 pb-3 pt-3">
         <div className="mb-3 flex size-10 items-center justify-center rounded-xl bg-accent text-lg font-bold text-white" style={dragStyle}>R</div>
-        <NavButton active={view === "chats"} icon={MessageCircle} label="Chats" onClick={() => setView("chats")} />
-        <NavButton active={view === "channels"} icon={Hash} label="Channels" onClick={() => setView("channels")} />
-        <NavButton active={view === "tasks"} icon={CheckCircle2} label="Tasks" onClick={() => setView("tasks")} />
-        <NavButton active={view === "agents"} icon={Bot} label="Agents" onClick={() => setView("agents")} />
+        <NavButton active={view === "chats"} icon={MessageCircle} label="Chats" onClick={() => changeView("chats")} />
+        <NavButton active={view === "channels"} icon={Hash} label="Channels" onClick={() => changeView("channels")} />
+        <NavButton active={view === "tasks"} icon={CheckCircle2} label="Tasks" onClick={() => changeView("tasks")} />
+        <NavButton active={view === "agents"} icon={Bot} label="Agents" onClick={() => changeView("agents")} />
         <span className="flex-1" />
         <NavButton active={false} icon={Settings2} label="Settings" onClick={() => dispatch({ type: "toggleAppSettings" })} />
       </nav>
@@ -249,7 +262,7 @@ export function WorkspaceNavigation({ open, onClose }: { open: boolean; onClose:
             />
           )}
         </header>
-        {(view === "chats" || view === "agents") && <label className="mx-3 mb-2 flex items-center gap-2 rounded-lg border border-hairline/50 bg-inset px-2.5 py-2 text-ink-secondary"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={view === "chats" ? "Search chats" : "Search agents"} className="min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-secondary" /></label>}
+        {(view === "chats" || view === "agents") && <label className="mx-3 mb-2 flex items-center gap-2 rounded-lg border border-hairline/50 bg-inset px-2.5 py-2 text-ink-secondary"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={view === "chats" ? "Search chats" : "Search agents"} className="min-w-0 flex-1 select-text bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-secondary" /></label>}
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
           {view === "chats" && <>
             <div className="mb-2 flex gap-1 px-1">{CHAT_FILTERS.map((item) => <button key={item} type="button" onClick={() => setFilter(item)} className={cn("rounded-md px-2 py-1 text-[11px] capitalize", filter === item ? "bg-raised text-ink" : "text-ink-secondary hover:text-ink")}>{item}</button>)}</div>
