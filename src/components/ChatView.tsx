@@ -1153,7 +1153,7 @@ export function ChatView({ bot }: { bot: Bot }) {
       >
         <div className={cn("flex min-w-0 items-center gap-2.5 rounded-lg pr-1.5", !macInset && "py-1")}>
           <button
-            onClick={() => dispatch({ type: "toggleSettings", open: true })}
+            onClick={() => dispatch({ type: "showAgents", botId: bot.id })}
             className="-ml-1.5 flex size-9 shrink-0 items-center justify-center rounded-lg hover:bg-raised"
             style={noDrag}
             title="Open agent profile"
@@ -1184,7 +1184,7 @@ export function ChatView({ bot }: { bot: Bot }) {
           >
             <Search size={18} />
           </button>
-          <ProfileButton compact={macInset} />
+          <ProfileButton botId={bot.id} compact={macInset} />
           <InspectorButton compact={macInset} open={state.inspectorOpen} onClick={() => dispatch({ type: "toggleInspector" })} />
           <UsageChip bot={bot} compact={macInset} />
         </div>
@@ -1373,7 +1373,7 @@ function UsageChip({ bot, compact = false }: { bot: Bot; compact?: boolean }) {
   const short = usage.costUsd !== null ? formatUsd(usage.costUsd) : formatTokens(usage.input + usage.output);
   return (
     <button
-      onClick={() => dispatch({ type: "toggleSettings", open: true })}
+      onClick={() => dispatch({ type: "showAgents", botId: bot.id })}
       className={cn(
         "whitespace-nowrap rounded-md px-3 text-[12px] tabular-nums text-ink-secondary hover:bg-raised hover:text-ink @max-4xl/chathead:px-2",
         compact ? "h-8" : "h-10",
@@ -1386,11 +1386,11 @@ function UsageChip({ bot, compact = false }: { bot: Bot; compact?: boolean }) {
   );
 }
 
-function ProfileButton({ compact = false }: { compact?: boolean }) {
+function ProfileButton({ botId, compact = false }: { botId: string; compact?: boolean }) {
   const { dispatch } = useStore();
   return (
     <button
-      onClick={() => dispatch({ type: "toggleSettings", open: true })}
+      onClick={() => dispatch({ type: "showAgents", botId })}
       aria-label="Open agent profile"
       className={cn(
         "flex items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink",

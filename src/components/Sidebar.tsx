@@ -717,7 +717,7 @@ function BotContextMenu({
         divider("d1"),
         item(<Pencil size={16} className="text-ink-secondary" />, "Edit Profile", () => {
           dispatch({ type: "select", id: bot.id });
-          dispatch({ type: "toggleSettings", open: true });
+          dispatch({ type: "showAgents", botId: bot.id });
         }),
         item(<Copy size={16} className="text-ink-secondary" />, "Duplicate", () =>
           dispatch({ type: "duplicateBot", botId: bot.id }),
@@ -1348,7 +1348,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                   onClick={() => {
                     setPlusOpen(false);
                     track("bot_created");
-                    dispatch({ type: "newBot" });
+                    dispatch({ type: "startAgentCreate" });
                   }}
                   className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
                 >

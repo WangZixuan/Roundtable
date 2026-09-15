@@ -3847,8 +3847,30 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse): 
     }
 
     if (method === "POST" && path === "/api/bots") {
-      const bot = store.createBot();
-      store.patchBot(bot.id, { modelSelection: await defaultSelection() });
+      const body = await readBody(req);
+      const profile = parseBotProfilePatch(body);
+      if (!profile.ok) return json(res, 400, { error: profile.error });
+      const requestedSelection = z.object({
+        instanceId: z.string().min(1),
+        model: z.string().min(1),
+        effort: z.string().optional(),
+      }).safeParse(body.modelSelection);
+      if (body.modelSelection !== undefined && !requestedSelection.success) {
+        return json(res, 400, { error: "modelSelection needs an instance and model" });
+      }
+      if (requestedSelection.success && requestedSelection.data.effort !== undefined && !isEffortLevel(requestedSelection.data.effort)) {
+        return json(res, 400, { error: `effort "${requestedSelection.data.effort}" is not recognized` });
+      }
+      const modelSelection = requestedSelection.success
+        ? requestedSelection.data
+        : await defaultSelection();
+      const bot = store.createBot({
+        name: profile.patch.name,
+        title: profile.patch.title,
+        description: profile.patch.description,
+        modelSelection,
+      });
+      store.patchBot(bot.id, { ...profile.patch, modelSelection });
       return json(res, 201, {
         bot: {
           ...wireBot(store.bot(bot.id)!),

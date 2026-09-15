@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Bot, CheckCircle2, ChevronDown, ChevronRight, Hash, MessageCircle,
-  Plus, Search, Settings2, Users,
+  Plus, Search, Settings2, Users, X,
 } from "lucide-react";
 import { formatTime, useStore, type Bot as Agent, type Group } from "@/state/store";
 import { BotAvatar } from "./Avatar";
 import { cn } from "@/lib/cn";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
+import { BotPickerList } from "./BotPickerList";
+import { track } from "@/lib/analytics";
 
 type WorkspaceView = "chats" | "channels" | "tasks" | "agents";
 type ChatFilter = "all" | "channels" | "direct" | "unread";
@@ -179,6 +182,60 @@ function NewChatMenu({ agents, open, onOpenChange, onSelect, noDragStyle }: {
   );
 }
 
+function NewChannelDialog({ onClose }: { onClose: () => void }) {
+  const { state, dispatch } = useStore();
+  const [name, setName] = useState("");
+  const [context, setContext] = useState("");
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const agents = state.bots.filter((agent) => !agent.hidden);
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => event.key === "Escape" && onClose();
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  const toggleAgent = (id: string) => {
+    setPicked((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const createChannel = () => {
+    if (picked.size === 0) return;
+    dispatch({
+      type: "createGroup",
+      memberIds: [...picked],
+      name: name.trim() || undefined,
+      section: context.trim() || undefined,
+    });
+    track("room_created", { members: picked.size, context: Boolean(context.trim()) });
+    onClose();
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-4" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section role="dialog" aria-modal="true" aria-labelledby="new-channel-title" className="w-full max-w-[360px] rounded-2xl border border-hairline/50 bg-card p-4 shadow-2xl shadow-black/60">
+        <header className="mb-3 flex items-center gap-3">
+          <h2 id="new-channel-title" className="min-w-0 flex-1 text-[15px] font-semibold text-ink">New Channel</h2>
+          <button type="button" onClick={onClose} aria-label="Close New Channel dialog" title="Close" className="rounded-lg p-1.5 text-ink-secondary hover:bg-raised hover:text-ink">
+            <X size={17} />
+          </button>
+        </header>
+        <input autoFocus maxLength={100} value={name} onChange={(event) => setName(event.target.value)} placeholder="Channel name" className="mb-3 w-full rounded-lg bg-raised/70 px-3 py-2 text-[14px] text-ink outline-none placeholder:text-ink-secondary" />
+        <input maxLength={60} value={context} onChange={(event) => setContext(event.target.value)} placeholder="Context (optional)" aria-label="Channel context" className="mb-3 w-full rounded-lg bg-raised/70 px-3 py-2 text-[14px] text-ink outline-none placeholder:text-ink-secondary" />
+        <BotPickerList bots={agents} picked={picked} onToggle={toggleAgent} emptyHint="Create an agent first — channels need at least one agent." />
+        <button type="button" onClick={createChannel} disabled={picked.size === 0} className="mt-3 w-full rounded-lg bg-accent py-2 text-[14px] font-medium text-white hover:brightness-110 disabled:opacity-40">
+          Create Channel{picked.size > 0 ? ` · ${picked.size} ${picked.size === 1 ? "agent" : "agents"}` : ""}
+        </button>
+      </section>
+    </div>,
+    document.body,
+  );
+}
+
 /** Conversation-first navigation. It deliberately maps legacy `Task` records
  * to the user-facing Chat term: each already has its own transcript and native
  * provider cursor, so no history or session migration is required. */
@@ -189,8 +246,13 @@ export function WorkspaceNavigation({ open, onClose }: { open: boolean; onClose:
   const [filter, setFilter] = useState<ChatFilter>("all");
   const [query, setQuery] = useState("");
   const [newChatOpen, setNewChatOpen] = useState(false);
+  const [newChannelOpen, setNewChannelOpen] = useState(false);
   const [pendingChatId, setPendingChatId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (state.activeView === "agents") setView("agents");
+  }, [state.activeView]);
 
   const chats = useMemo(() => [
     ...state.groups.map(channelChat),
@@ -233,6 +295,9 @@ export function WorkspaceNavigation({ open, onClose }: { open: boolean; onClose:
   const changeView = (nextView: WorkspaceView) => {
     window.getSelection()?.removeAllRanges();
     setNewChatOpen(false);
+    setNewChannelOpen(false);
+    if (nextView === "agents") dispatch({ type: "showAgents" });
+    else if (state.activeView === "agents" && state.selectedId) dispatch({ type: "select", id: state.selectedId });
     setView(nextView);
   };
 
@@ -252,7 +317,7 @@ export function WorkspaceNavigation({ open, onClose }: { open: boolean; onClose:
         <header className="flex h-14 items-center gap-2 px-4" style={dragStyle}>
           <h1 className="text-[15px] font-semibold text-ink">{title}</h1>
           <span className="flex-1" />
-          {(view === "chats" || view === "agents") && (
+          {view === "chats" && (
             <NewChatMenu
               agents={state.bots.filter((agent) => !agent.hidden)}
               open={newChatOpen}
@@ -260,6 +325,16 @@ export function WorkspaceNavigation({ open, onClose }: { open: boolean; onClose:
               onSelect={createDirectChat}
               noDragStyle={noDragStyle}
             />
+          )}
+          {view === "agents" && (
+            <button type="button" onClick={() => dispatch({ type: "startAgentCreate" })} className="rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink" style={noDragStyle} title="New Agent" aria-label="New Agent">
+              <Plus size={18} />
+            </button>
+          )}
+          {view === "channels" && (
+            <button type="button" onClick={() => setNewChannelOpen(true)} className="rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink" style={noDragStyle} title="New Channel" aria-label="New Channel">
+              <Plus size={18} />
+            </button>
           )}
         </header>
         {(view === "chats" || view === "agents") && <label className="mx-3 mb-2 flex items-center gap-2 rounded-lg border border-hairline/50 bg-inset px-2.5 py-2 text-ink-secondary"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={view === "chats" ? "Search chats" : "Search agents"} className="min-w-0 flex-1 select-text bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-secondary" /></label>}
@@ -275,10 +350,11 @@ export function WorkspaceNavigation({ open, onClose }: { open: boolean; onClose:
             return <div key={group.id} className="mb-1"><button type="button" onClick={() => setExpanded((value) => ({ ...value, [group.id]: !isOpen }))} className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-raised"><span className="text-ink-secondary">{isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</span><Hash size={16} className="text-accent" /><span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">{group.name}</span></button>{isOpen && <div className="ml-7 border-l border-hairline/40 pl-2"><button type="button" onClick={() => openChat(channelChat(group))} className="w-full rounded-md px-2 py-1.5 text-left text-[12px] text-ink-secondary hover:bg-raised hover:text-ink">{group.name}</button><p className="px-2 py-1 text-[11px] text-ink-secondary">Coordinator · {members.length} agents</p></div>}</div>;
           })}
           {view === "tasks" && <>{chats.filter((chat) => chat.kind === "direct").map((chat) => <button key={chat.id} type="button" onClick={() => openChat(chat)} className="mb-1 w-full rounded-lg border border-hairline/35 px-3 py-2 text-left hover:bg-raised"><span className="flex items-center gap-2 text-[13px] text-ink"><CheckCircle2 size={15} className={chat.agent?.busy ? "text-accent" : "text-ink-secondary"} />{chat.title}</span><span className="ml-6 block truncate text-[11px] text-ink-secondary">{chat.owner} · {chat.agent?.busy ? "In progress" : "Conversation"}</span></button>)}{state.groups.flatMap((group) => group.coordination?.tasks ?? []).map((task) => <button key={task.id} type="button" onClick={() => dispatch({ type: "select", id: state.groups.find((group) => group.coordination?.tasks.some((candidate) => candidate.id === task.id))!.id })} className="mb-1 w-full rounded-lg border border-hairline/35 px-3 py-2 text-left hover:bg-raised"><span className="text-[13px] text-ink">{task.title}</span><span className="block text-[11px] text-ink-secondary">{task.botName} · {task.status}</span></button>)}</>}
-          {view === "agents" && state.bots.filter((agent) => !agent.hidden && (!term || `${agent.name} ${agent.title} ${agent.description}`.toLowerCase().includes(term))).map((agent) => <div key={agent.id} className="mb-2 rounded-xl border border-hairline/50 bg-card p-3"><div className="flex items-center gap-2"><BotAvatar bot={agent} state="happy" size={28} animated={false} /><span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-medium text-ink">{agent.name}</span><span className="block truncate text-[11px] text-ink-secondary">{agent.title || "Agent"}</span></span><span className="size-2 rounded-full bg-success" title="Connected" /></div><button type="button" onClick={() => createDirectChat(agent)} className="mt-2 w-full rounded-md bg-raised px-2 py-1.5 text-[12px] text-ink hover:bg-raised-hover">New Chat</button></div>)}
+          {view === "agents" && state.bots.filter((agent) => !agent.hidden && (!term || `${agent.name} ${agent.title} ${agent.description}`.toLowerCase().includes(term))).map((agent) => <div key={agent.id} className={cn("mb-2 rounded-xl border p-3", state.activeView === "agents" && state.selectedId === agent.id && !state.agentCreateOpen ? "border-accent/50 bg-accent/5" : "border-hairline/50 bg-card")}><button type="button" onClick={() => dispatch({ type: "selectAgentProfile", botId: agent.id })} className="flex w-full items-center gap-2 text-left"><BotAvatar bot={agent} state="happy" size={28} animated={false} /><span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-medium text-ink">{agent.name}</span><span className="block truncate text-[11px] text-ink-secondary">{agent.title || "Agent"}</span></span><span className="size-2 rounded-full bg-success" title="Connected" /></button><button type="button" onClick={() => createDirectChat(agent)} className="mt-2 w-full rounded-md bg-raised px-2 py-1.5 text-[12px] text-ink hover:bg-raised-hover">New Chat</button></div>)}
         </div>
         <button type="button" onClick={() => dispatch({ type: "toggleAppSettings" })} className="mx-3 mb-3 flex items-center gap-2 rounded-lg px-2 py-2 text-[12px] text-ink-secondary hover:bg-raised hover:text-ink"><Users size={15} />Workspace settings</button>
       </section>
+      {newChannelOpen && <NewChannelDialog onClose={() => setNewChannelOpen(false)} />}
     </aside>
   );
 }

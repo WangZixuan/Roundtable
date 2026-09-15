@@ -1,5 +1,5 @@
-import { ChevronDown, ChevronLeft, FolderOpen, X } from "lucide-react";
-import { useState } from "react";
+import { ChevronDown, FolderOpen, Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { api, useStore, type Bot } from "@/state/store";
 import { stateForBot } from "@/lib/mascot";
 import { ModelPicker } from "./ModelPicker";
@@ -310,8 +310,9 @@ function MemoryCard({ bot }: { bot: Bot }) {
   );
 }
 
-export function SettingsPanel({ bot }: { bot: Bot }) {
+export function AgentProfilePage({ bot }: { bot: Bot }) {
   const { state, dispatch } = useStore();
+  const { capabilities } = useDesktopCapabilities();
   const patch = (
     p: Partial<
       Pick<
@@ -336,33 +337,21 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
   const mascotMotion = state.mascotMotion?.botId === bot.id ? state.mascotMotion : null;
   const engine = state.instances.find((instance) => instance.instanceId === bot.modelSelection.instanceId);
   const canCoordinate = engine?.capabilities?.agentsMcp === true;
+  const desktop = capabilities.host.label !== "Browser";
+  // SAFETY: Electron implements this CSS property although React's declarations omit it.
+  const dragStyle = desktop ? ({ WebkitAppRegion: "drag" } as React.CSSProperties) : undefined;
 
   return (
-    <>
-    <aside className="animate-panel-in relative z-20 flex h-full w-[400px] shrink-0 flex-col border-l border-hairline/40 bg-panel">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3">
-        <button
-          onClick={() => dispatch({ type: "toggleSettings", open: false })}
-          aria-label="Collapse agent profile"
-          title="Collapse agent profile"
-          className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-control hover:text-ink"
-        >
-          <ChevronLeft size={18} />
-        </button>
-        <span className="text-[15px] font-semibold text-ink">Agent profile</span>
-        <button
-          onClick={() => dispatch({ type: "toggleSettings", open: false })}
-          aria-label="Close agent profile"
-          title="Close agent profile"
-          className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-control hover:text-ink"
-        >
-          <X size={18} />
-        </button>
+    <main className="relative flex h-full min-w-0 flex-1 flex-col bg-app">
+      <div className="flex h-14 shrink-0 items-center border-b border-hairline/40 px-6" style={dragStyle}>
+        <div>
+          <h1 className="text-[15px] font-semibold text-ink">{bot.name}</h1>
+          <p className="text-[11px] text-ink-secondary">Agent profile</p>
+        </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-5 pb-5">
-        <div className="flex flex-col gap-4 pt-4">
+      <div className="flex-1 overflow-y-auto px-6 pb-8">
+        <div className="mx-auto flex w-full max-w-[760px] flex-col gap-4 pt-6">
           <BotProfileAvatarCard
             bot={bot}
             activeState={activeState}
@@ -548,7 +537,118 @@ export function SettingsPanel({ bot }: { bot: Bot }) {
           </div>
         </div>
       </div>
-    </aside>
-    </>
+    </main>
+  );
+}
+
+export function NewAgentPage() {
+  const { state, dispatch } = useStore();
+  const { capabilities } = useDesktopCapabilities();
+  const firstEngine = state.instances.find((instance) => instance.snapshot.state === "available") ?? state.instances[0];
+  const [draft, setDraft] = useState<Bot>(() => ({
+    id: "draft-agent",
+    threadId: "draft-thread",
+    name: "",
+    title: "",
+    description: "",
+    notifications: true,
+    color: "green",
+    unread: false,
+    modelSelection: {
+      instanceId: firstEngine?.instanceId ?? "",
+      model: firstEngine?.models.default ?? "",
+    },
+    autoApprove: false,
+    approvePeerComms: false,
+    messages: [],
+  }));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const engine = state.instances.find((instance) => instance.instanceId === draft.modelSelection.instanceId);
+  const canCoordinate = engine?.capabilities?.agentsMcp === true;
+  const desktop = capabilities.host.label !== "Browser";
+  // SAFETY: Electron implements these title-bar properties although React's declarations omit them.
+  const dragStyle = desktop ? ({ WebkitAppRegion: "drag" } as React.CSSProperties) : undefined;
+  // SAFETY: Buttons inside the Electron drag region must remain interactive.
+  const noDragStyle = desktop ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties) : undefined;
+  const patchDraft = (patch: Partial<Bot>) => setDraft((current) => ({ ...current, ...patch }));
+
+  useEffect(() => {
+    if (draft.modelSelection.instanceId || !firstEngine) return;
+    patchDraft({ modelSelection: { instanceId: firstEngine.instanceId, model: firstEngine.models.default } });
+  }, [draft.modelSelection.instanceId, firstEngine]);
+
+  const create = async () => {
+    if (!draft.name.trim() || !draft.modelSelection.instanceId || !draft.modelSelection.model) return;
+    setSaving(true);
+    setError(null);
+    let createdId: string | null = null;
+    try {
+      const created: { bot: Bot } = await api("/api/bots", {
+        method: "POST",
+        body: JSON.stringify({
+          name: draft.name.trim(),
+          title: draft.title.trim(),
+          description: draft.description.trim(),
+          modelSelection: draft.modelSelection,
+        }),
+      });
+      createdId = created.bot.id;
+      const response: { bot: Bot } = await api(`/api/bots/${createdId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: draft.name.trim(),
+          title: draft.title.trim(),
+          description: draft.description.trim(),
+          notifications: draft.notifications,
+          color: draft.color,
+          mascotExpression: draft.mascotExpression,
+          avatarUrl: draft.avatarUrl,
+          avatarCrop: draft.avatarCrop,
+          modelSelection: draft.modelSelection,
+          cwd: draft.cwd?.trim() || null,
+          autoApprove: Boolean(draft.autoApprove),
+          approvePeerComms: Boolean(draft.approvePeerComms),
+        }),
+      });
+      const bot = { ...created.bot, ...response.bot, messages: created.bot.messages ?? [] };
+      dispatch({ type: "botAdded", bot });
+      dispatch({ type: "selectAgentProfile", botId: bot.id });
+    } catch (cause) {
+      if (createdId) await api(`/api/bots/${createdId}`, { method: "DELETE" }).catch(() => {});
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <main className="relative flex h-full min-w-0 flex-1 flex-col bg-app">
+      <div className="flex h-14 shrink-0 items-center gap-3 border-b border-hairline/40 px-6" style={dragStyle}>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-[15px] font-semibold text-ink">New Agent</h1>
+          <p className="text-[11px] text-ink-secondary">Configure the complete profile before creating it.</p>
+        </div>
+        <button type="button" onClick={() => dispatch({ type: "cancelAgentCreate" })} style={noDragStyle} className="rounded-lg px-3 py-2 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink">Cancel</button>
+        <button type="button" onClick={() => void create()} disabled={saving || !draft.name.trim() || !draft.modelSelection.instanceId || !draft.modelSelection.model} style={noDragStyle} className="flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-[13px] font-medium text-white hover:brightness-110 disabled:opacity-40">
+          {saving && <Loader2 size={14} className="animate-spin" />} Create Agent
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto px-6 pb-8">
+        <div className="mx-auto flex w-full max-w-[760px] flex-col gap-4 pt-6">
+          <BotProfileAvatarCard bot={draft} activeState={stateForBot(draft)} mascotMotion={null} onPatch={patchDraft} />
+          <Field label="Name"><input autoFocus className={inputCls} maxLength={BOT_PROFILE_LIMITS.name} value={draft.name} onChange={(event) => patchDraft({ name: event.target.value })} placeholder="Agent name" /></Field>
+          <Field label="Title"><input className={inputCls} maxLength={BOT_PROFILE_LIMITS.title} value={draft.title} onChange={(event) => patchDraft({ title: event.target.value })} placeholder="Describe what your agent does" /></Field>
+          <Field label="Description"><textarea className={cn(inputCls, "min-h-[120px] resize-y")} maxLength={BOT_PROFILE_LIMITS.description} value={draft.description} onChange={(event) => patchDraft({ description: event.target.value })} placeholder="What this agent is for" /></Field>
+          <div className="rounded-xl bg-card p-4"><ModelPicker bot={draft} contained onChange={(modelSelection) => patchDraft({ modelSelection })} label={<div><div className="text-[15px] font-medium text-ink">Model</div><div className="mt-0.5 text-[13px] text-ink-secondary">Which provider and model this agent runs on</div></div>} /></div>
+          {!!engine?.capabilities?.effortLevels?.length && <div className="rounded-xl bg-card p-4"><div className="text-[15px] font-medium text-ink">Effort</div><div className="mt-3 flex overflow-hidden rounded-lg border border-hairline/40">{([undefined, ...engine.capabilities.effortLevels] as const).map((level, index) => <button key={level ?? "default"} type="button" onClick={() => patchDraft({ modelSelection: { ...draft.modelSelection, effort: level } })} className={cn("flex-1 py-1.5 text-[13px] capitalize", index > 0 && "border-l border-hairline/40", draft.modelSelection.effort === level ? "bg-control text-ink" : "text-ink-secondary hover:bg-control/60 hover:text-ink")}>{level === "xhigh" ? "X-High" : (level ?? "Default")}</button>)}</div></div>}
+          <Field label="Working folder"><input className={cn(inputCls, "font-mono text-[12.5px]")} value={draft.cwd ?? ""} onChange={(event) => patchDraft({ cwd: event.target.value })} placeholder="Private agent workspace — or an absolute path" /></Field>
+          <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4"><div><div className="text-[15px] font-medium text-ink">Ask before contacting other agents</div><div className="mt-0.5 text-[13px] text-ink-secondary">Require approval before this agent contacts teammates.</div></div><button role="switch" aria-checked={Boolean(draft.approvePeerComms)} disabled={!draft.approvePeerComms && !canCoordinate} onClick={() => patchDraft({ approvePeerComms: !draft.approvePeerComms })} className={cn("relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors disabled:opacity-40", draft.approvePeerComms ? "bg-accent" : "bg-control")}><span className={cn("absolute top-[3px] size-5 rounded-full bg-white transition-all", draft.approvePeerComms ? "left-[21px]" : "left-[3px]")} /></button></div>
+          <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4"><div><div className="text-[15px] font-medium text-ink">Auto mode</div><div className="mt-0.5 text-[13px] text-ink-secondary">Allow the agent to continue through routine approvals.</div></div><button role="switch" aria-checked={Boolean(draft.autoApprove)} onClick={() => patchDraft({ autoApprove: !draft.autoApprove })} className={cn("relative h-[26px] w-[44px] shrink-0 rounded-full", draft.autoApprove ? "bg-accent" : "bg-control")}><span className={cn("absolute top-[3px] size-5 rounded-full bg-white transition-all", draft.autoApprove ? "left-[21px]" : "left-[3px]")} /></button></div>
+          <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4"><div><div className="text-[15px] font-medium text-ink">Notifications</div><div className="mt-0.5 text-[13px] text-ink-secondary">Notify you when this agent finishes or needs input.</div></div><button role="switch" aria-checked={draft.notifications} onClick={() => patchDraft({ notifications: !draft.notifications })} className={cn("relative h-[26px] w-[44px] shrink-0 rounded-full", draft.notifications ? "bg-accent" : "bg-control")}><span className={cn("absolute top-[3px] size-5 rounded-full bg-white transition-all", draft.notifications ? "left-[21px]" : "left-[3px]")} /></button></div>
+          {error && <div role="alert" className="rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-[13px] text-danger">{error}</div>}
+        </div>
+      </div>
+    </main>
   );
 }

@@ -485,13 +485,14 @@ export interface AppState {
   config: ConfigStatus | null;
   /** selected chat — a bot id OR a group id */
   selectedId: string;
-  activeView: "chat" | "team-map" | "routines" | "skill-recorder";
+  activeView: "chat" | "agents" | "team-map" | "routines" | "skill-recorder";
+  /** True while the Agents workspace is editing an unsaved local draft. */
+  agentCreateOpen: boolean;
   routines: Routine[];
   routineRuns: RoutineRun[];
   webhooks: WebhookTrigger[];
   webhookAttempts: WebhookAttempt[];
   webhookIngress: WebhookIngressStatus | null;
-  settingsOpen: boolean;
   /** the per-thread event inspector (runtime stream + native protocol tee) */
   inspectorOpen: boolean;
   appSettingsOpen: boolean;
@@ -538,6 +539,10 @@ export type Action =
   | { type: "showRoutines" }
   | { type: "showTeamMap" }
   | { type: "showSkillRecorder" }
+  | { type: "showAgents"; botId?: string }
+  | { type: "startAgentCreate" }
+  | { type: "cancelAgentCreate" }
+  | { type: "selectAgentProfile"; botId: string }
   | { type: "routinesHydrated"; routines: Routine[]; runs: RoutineRun[] }
   | { type: "routinePatched"; routine: Routine }
   | { type: "routineDeleted"; routineId: string }
@@ -607,7 +612,6 @@ export type Action =
   | { type: "interrupt"; botId: string }
   | { type: "connected"; value: boolean }
   | { type: "error"; message: string | null }
-  | { type: "toggleSettings"; open?: boolean }
   | { type: "toggleInspector"; open?: boolean }
   | { type: "focusMessage"; threadId: string; messageId: string }
   | { type: "focusMessageConsumed"; nonce: number }
@@ -708,7 +712,6 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         activeView: "routines",
-        settingsOpen: false,
         inspectorOpen: false,
         appSettingsOpen: false,
       };
@@ -716,7 +719,6 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         activeView: "team-map",
-        settingsOpen: false,
         inspectorOpen: false,
         appSettingsOpen: false,
       };
@@ -725,10 +727,38 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         activeView: "skill-recorder",
-        settingsOpen: false,
         inspectorOpen: false,
         appSettingsOpen: false,
       };
+    case "showAgents": {
+      const requested = action.botId && state.bots.some((bot) => bot.id === action.botId)
+        ? action.botId
+        : undefined;
+      const currentAgent = state.bots.some((bot) => bot.id === state.selectedId)
+        ? state.selectedId
+        : undefined;
+      return {
+        ...state,
+        activeView: "agents",
+        selectedId: requested ?? currentAgent ?? state.bots.find((bot) => !bot.hidden)?.id ?? "",
+        agentCreateOpen: false,
+        inspectorOpen: false,
+        appSettingsOpen: false,
+      };
+    }
+    case "startAgentCreate":
+      return {
+        ...state,
+        activeView: "agents",
+        agentCreateOpen: true,
+        inspectorOpen: false,
+        appSettingsOpen: false,
+      };
+    case "cancelAgentCreate":
+      return { ...state, agentCreateOpen: false };
+    case "selectAgentProfile":
+      if (!state.bots.some((bot) => bot.id === action.botId)) return state;
+      return { ...state, activeView: "agents", agentCreateOpen: false, selectedId: action.botId };
     case "routinesHydrated":
       return { ...state, routines: action.routines, routineRuns: action.runs };
     case "routinePatched": {
@@ -1025,16 +1055,6 @@ export function reducer(state: AppState, action: Action): AppState {
           : state),
         error: action.message,
       };
-    // bot settings, the inspector, and app settings share the right slot
-    case "toggleSettings": {
-      const open = action.open ?? !state.settingsOpen;
-      return {
-        ...state,
-        settingsOpen: open,
-        inspectorOpen: open ? false : state.inspectorOpen,
-        appSettingsOpen: open ? false : state.appSettingsOpen,
-      };
-    }
     case "focusMessage":
       return {
         ...state,
@@ -1053,7 +1073,6 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         inspectorOpen: open,
-        settingsOpen: open ? false : state.settingsOpen,
         appSettingsOpen: open ? false : state.appSettingsOpen,
       };
     }
@@ -1063,7 +1082,6 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         appSettingsOpen: open,
         appSettingsSection: action.section ?? state.appSettingsSection,
-        settingsOpen: open ? false : state.settingsOpen,
         inspectorOpen: open ? false : state.inspectorOpen,
       };
     }
@@ -1183,12 +1201,12 @@ export const initialState: AppState = {
   config: null,
   selectedId: "",
   activeView: "chat",
+  agentCreateOpen: false,
   routines: [],
   routineRuns: [],
   webhooks: [],
   webhookAttempts: [],
   webhookIngress: null,
-  settingsOpen: false,
   inspectorOpen: false,
   appSettingsOpen: false,
   appSettingsSection: "general",

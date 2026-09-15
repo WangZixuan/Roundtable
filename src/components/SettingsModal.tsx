@@ -1,5 +1,5 @@
 // App settings, as a real modal with sections rather than one long panel.
-// Per-bot settings (persona, model, computer) stay in SettingsPanel — this
+// Per-Agent settings live in the Agents workspace — this
 // is the stuff shared by every agent: profile, engines, and runtime policy.
 import { useEffect, useRef, useState } from "react";
 import { Coins, Search, Sparkles, Terminal, User, X } from "lucide-react";

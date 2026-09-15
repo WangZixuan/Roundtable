@@ -616,8 +616,18 @@ describe("harness HTTP API", () => {
   });
 
   it("creates, patches, and deletes a bot", async () => {
-    const created = await api("POST", "/api/bots");
+    const created = await api("POST", "/api/bots", {
+      name: "Drafted Agent",
+      title: "Researcher",
+      description: "Finds primary evidence",
+    });
     expect(created.status).toBe(201);
+    expect(created.body.bot).toMatchObject({
+      name: "Drafted Agent",
+      title: "Researcher",
+      description: "Finds primary evidence",
+    });
+    expect(created.body.bot.messages[0]?.text).toContain("Drafted Agent");
     const bot = created.body.bot;
 
     const patched = await api("PATCH", `/api/bots/${bot.id}`, { name: "Renamed", pinned: true });

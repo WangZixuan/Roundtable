@@ -93,6 +93,32 @@ describe("Teach a skill feature flag", () => {
   });
 });
 
+describe("Agents workspace", () => {
+  const agent = {
+    id: "agent-1",
+    threadId: "thread-1",
+    name: "Codex",
+    title: "Coding Agent",
+    description: "",
+    notifications: true,
+    color: "green",
+    unread: false,
+    modelSelection: { instanceId: "codex", model: "default" },
+    messages: [],
+  } satisfies Bot;
+
+  it("opens an existing profile and an unsaved creation draft", () => {
+    const base = { ...initialState, bots: [agent] };
+    const profile = reducer(base, { type: "showAgents", botId: agent.id });
+    expect(profile).toMatchObject({ activeView: "agents", selectedId: agent.id, agentCreateOpen: false });
+
+    const draft = reducer(profile, { type: "startAgentCreate" });
+    expect(draft).toMatchObject({ activeView: "agents", agentCreateOpen: true });
+
+    expect(reducer(draft, { type: "cancelAgentCreate" }).agentCreateOpen).toBe(false);
+  });
+});
+
 describe("onboarding quiz", () => {
   const quizCard = {
     title: "What do you mostly want help with?",
