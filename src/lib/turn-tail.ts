@@ -1,5 +1,13 @@
 import type { Message } from "@/state/store";
 
+/** Provider streams may begin with formatting whitespace. Treat that as no
+ * visible reply so the working indicator is not replaced by a lone caret. */
+export function hasVisibleStreamingText(streaming: string | undefined): streaming is string {
+  if (!streaming) return false;
+  const content = streaming.replace(/[\s\x21-\x2f\x3a-\x40\x5b-\x60\x7b-\x7e\p{Cf}]/gu, "");
+  return content.length > 0;
+}
+
 /** Whether the transcript tail should show the "working" dots.
  *
  * A turn ends across three server frames: the settled reply (`message`),
@@ -20,7 +28,7 @@ export function showWorkingDots(
    * speaker doesn't cover this one — its dots are real information. */
   speakerBotId?: string,
 ): boolean {
-  if (!busy || streaming) return false;
+  if (!busy || hasVisibleStreamingText(streaming)) return false;
   if (!lastMessage) return true;
   const settledReply = lastMessage.role === "bot" && lastMessage.kind === "text";
   if (!settledReply) return true;

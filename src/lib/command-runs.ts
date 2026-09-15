@@ -22,7 +22,9 @@ export type TranscriptRow = TurnRow | CommandRunRow | MessageRow;
 export interface CommandRunCounts {
   actions: number;
   approvals: number;
-  failed: boolean;
+  inProgress: number;
+  failed: number;
+  completed: number;
 }
 
 /** Runtime rows that become one compact command history after their turn.
@@ -36,21 +38,12 @@ export function isCommandRunMessage(message: Message): boolean {
   return message.kind === "options" && Boolean(message.card?.requestId && message.card.tool);
 }
 
-/** Legacy persisted messages predate turnId. Group only settled rows: a
- * running command or unanswered approval must retain its live standalone UI. */
-function isSettledLegacyCommand(message: Message): boolean {
-  if (message.turnId || !isCommandRunMessage(message)) return false;
-  if (message.kind === "activity") return message.tool?.ok !== undefined;
-  return Boolean(message.card?.answered || message.card?.dismissed);
-}
-
-/** Runtime rows first form compact consecutive groups. The turn pass below
- * then consolidates those groups so one backend turn renders one Run command
- * card even when assistant text appeared between tool calls. */
+/** Runtime rows form compact consecutive groups. Assistant text is a hard
+ * boundary, even when later tool calls belong to the same backend turn. */
 export function commandRunRows(messages: Message[]): TranscriptRow[] {
   const rows: Array<CommandRunRow | MessageRow> = [];
   for (const message of messages) {
-    if (isCommandRunMessage(message) && (message.turnId || isSettledLegacyCommand(message))) {
+    if (isCommandRunMessage(message)) {
       const previous = rows.at(-1);
       const runId = message.turnId ?? (
         previous?.kind === "command-run" && previous.turnId.startsWith("legacy:")
@@ -94,11 +87,7 @@ export function commandRunRows(messages: Message[]): TranscriptRow[] {
       }
     } else if (turnId && row.kind === "command-run") {
       if (previous?.kind === "turn" && previous.turnId === turnId) {
-        const commandRun = previous.rows.find(
-          (candidate): candidate is CommandRunRow => candidate.kind === "command-run",
-        );
-        if (commandRun) commandRun.messages.push(...row.messages);
-        else previous.rows.push(row);
+        previous.rows.push(row);
       } else {
         grouped.push({ kind: "turn", turnId, rows: [row] });
       }
@@ -112,17 +101,32 @@ export function commandRunRows(messages: Message[]): TranscriptRow[] {
 export function commandRunCounts(messages: Message[]): CommandRunCounts {
   let actions = 0;
   let approvals = 0;
-  let failed = false;
+  let inProgress = 0;
+  let failed = 0;
+  let completed = 0;
   for (const message of messages) {
     if (message.kind === "options" && message.card?.tool) approvals += 1;
     if (message.kind === "activity" && message.tool) {
       if (/^auto-approved\b/i.test(message.tool.name)) approvals += 1;
-      else actions += 1;
-      if (message.tool.ok === false) failed = true;
+      else {
+        actions += 1;
+        if (message.tool.ok === undefined) inProgress += 1;
+        else if (message.tool.ok === false) failed += 1;
+        else completed += 1;
+      }
     }
-    if (message.card?.answered === "unavailable") failed = true;
   }
-  return { actions, approvals, failed };
+  return { actions, approvals, inProgress, failed, completed };
+}
+
+export function commandRuns(rows: TranscriptRow[]): CommandRunRow[] {
+  return rows.flatMap((candidate) =>
+    candidate.kind === "turn"
+      ? candidate.rows.filter((nested): nested is CommandRunRow => nested.kind === "command-run")
+      : candidate.kind === "command-run"
+        ? [candidate]
+        : [],
+  );
 }
 
 export function currentCommand(messages: Message[]): Message | undefined {
@@ -137,14 +141,9 @@ export function isLiveCommandRun(
   liveTurnId: string | undefined,
 ): boolean {
   if (!liveTurnId || row.turnId !== liveTurnId || !currentCommand(row.messages)) return false;
-  const commandRows = rows.flatMap((candidate) =>
-    candidate.kind === "turn"
-      ? candidate.rows.filter((nested): nested is CommandRunRow => nested.kind === "command-run")
-      : candidate.kind === "command-run"
-        ? [candidate]
-        : [],
+  const latest = [...commandRuns(rows)].reverse().find(
+    (candidate) => candidate.turnId === liveTurnId && currentCommand(candidate.messages),
   );
-  const latest = [...commandRows].reverse().find((candidate) => candidate.turnId === liveTurnId && currentCommand(candidate.messages));
   return latest === row;
 }
 

@@ -120,11 +120,8 @@ export function ModelPicker({
   const selection = bot.modelSelection;
   const active = state.instances.find((instance) => instance.instanceId === selection.instanceId);
   const selectionIsAvailable = Boolean(active?.models.options.some((option) => option.id === selection.model));
-  // An agent is configured against one provider. Do not offer another
-  // provider's catalog here: changing providers belongs in agent setup.
-  const configuredInstances = active ? [active] : [];
   const railInstance =
-    configuredInstances.find((instance) => instance.instanceId === (railId ?? selection.instanceId)) ?? configuredInstances[0];
+    state.instances.find((instance) => instance.instanceId === (railId ?? selection.instanceId)) ?? state.instances[0];
 
   useEffect(() => {
     if (open) void refreshInstances();
@@ -284,7 +281,7 @@ export function ModelPicker({
         >
           <div className="flex w-14 shrink-0 flex-col gap-1 overflow-y-auto border-r border-hairline/40 bg-panel p-2">
             {(() => {
-              const { subscription, custom: local } = splitEngineRail(configuredInstances);
+              const { subscription, custom: local } = splitEngineRail(state.instances);
               const railButton = (instance: InstanceInfo) => {
                 const selected = instance.instanceId === railInstance?.instanceId;
                 const attention = needsCli(instance) || needsSignIn(instance);

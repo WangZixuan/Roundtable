@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Message } from "@/state/store";
-import { showWorkingDots } from "./turn-tail";
+import { hasVisibleStreamingText, showWorkingDots } from "./turn-tail";
 
 const msg = (m: Partial<Message>): Message => ({ id: "m1", role: "bot", kind: "text", at: 1, ...m });
 
@@ -9,6 +9,16 @@ describe("showWorkingDots", () => {
   it("hides the dots when the bot is idle or a stream is rendering", () => {
     expect(showWorkingDots(false, undefined, msg({ role: "user" }))).toBe(false);
     expect(showWorkingDots(true, "partial reply…", msg({ role: "user" }))).toBe(false);
+  });
+
+  it("keeps working visible for whitespace-only stream chunks", () => {
+    expect(hasVisibleStreamingText(" \n\t")).toBe(false);
+    expect(hasVisibleStreamingText("\u200b\u200d")).toBe(false);
+    expect(hasVisibleStreamingText("```")).toBe(false);
+    expect(hasVisibleStreamingText("Hello")).toBe(true);
+    expect(hasVisibleStreamingText("你好")).toBe(true);
+    expect(hasVisibleStreamingText("👍")).toBe(true);
+    expect(showWorkingDots(true, " \n\t", msg({ role: "user" }))).toBe(true);
   });
 
   it("shows the dots while a turn runs with nothing settled yet", () => {

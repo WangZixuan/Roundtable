@@ -35,7 +35,7 @@ import {
 import { EngineSetup } from "./EngineSetup";
 import { BotAvatar, MausAvatar, STANDARD_BOT_AVATAR_SIZE } from "./Avatar";
 import { stateForBot } from "@/lib/mascot";
-import { showWorkingDots } from "@/lib/turn-tail";
+import { hasVisibleStreamingText, showWorkingDots } from "@/lib/turn-tail";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { OptionCard, shouldHideOnboardingCard } from "./OptionCard";
 import { ApprovalCard } from "./ApprovalCard";
@@ -67,6 +67,7 @@ import { changedFilesFromTurnRows, type ChangedFile } from "@/lib/changed-files"
 import {
   commandRunCounts,
   commandRunRows,
+  commandRuns,
   currentCommand,
   hasPendingApproval,
   isLiveCommandRun,
@@ -507,19 +508,6 @@ function approvalOutcome(message: Message): string {
   }
 }
 
-/** During an active turn, completed tool history stays out of the way. Only
- * the command that is actually running is visible; the settled group replaces
- * it when the turn finishes. */
-function CurrentCommandRow({ message }: { message: Message }) {
-  if (!message.tool) return null;
-  return (
-    <div className="flex min-w-0 items-center gap-2 py-1.5 text-[13px] text-ink-secondary" role="status" aria-live="polite">
-      <Loader2 size={13} className="shrink-0 animate-spin text-accent" aria-hidden="true" />
-      <span className="truncate font-mono">{message.tool.name}</span>
-    </div>
-  );
-}
-
 function CommandRunGroup({ run, focusedMessageId }: { run: CommandRunRow; focusedMessageId?: string }) {
   const [open, setOpen] = useState(false);
   const counts = commandRunCounts(run.messages);
@@ -532,6 +520,26 @@ function CommandRunGroup({ run, focusedMessageId }: { run: CommandRunRow; focuse
   const approvalLabel = counts.approvals > 0
     ? ` · ${counts.approvals} ${counts.approvals === 1 ? "approval" : "approvals"}`
     : "";
+  const statusCounts = [
+    counts.inProgress > 0 && {
+      key: "progress",
+      label: `${counts.inProgress} in progress`,
+      icon: <Loader2 size={13} className="animate-spin" aria-hidden="true" />,
+      className: "text-accent",
+    },
+    counts.failed > 0 && {
+      key: "failed",
+      label: `${counts.failed} failed`,
+      icon: <X size={13} aria-hidden="true" />,
+      className: "text-danger",
+    },
+    counts.completed > 0 && {
+      key: "completed",
+      label: `${counts.completed} completed`,
+      icon: <Check size={13} aria-hidden="true" />,
+      className: "text-success",
+    },
+  ].filter((status): status is Exclude<typeof status, false> => Boolean(status));
 
   return (
     <div className="flex justify-start">
@@ -547,9 +555,13 @@ function CommandRunGroup({ run, focusedMessageId }: { run: CommandRunRow; focuse
             <span className="font-medium text-ink">Run command</span>
             <span> · {actionLabel}{approvalLabel}</span>
           </span>
-          <span className={cn("flex shrink-0 items-center gap-1", counts.failed ? "text-danger" : "text-success")}>
-            {counts.failed ? <X size={13} aria-hidden="true" /> : <Check size={13} aria-hidden="true" />}
-            {counts.failed ? "Failed" : "Completed"}
+          <span className="flex shrink-0 items-center gap-2" role="status" aria-live="polite">
+            {statusCounts.map((status) => (
+              <span key={status.key} className={cn("flex items-center gap-1", status.className)}>
+                {status.icon}
+                {status.label}
+              </span>
+            ))}
           </span>
         </button>
         {open && (
@@ -629,17 +641,39 @@ function ScreenFrame({ png, mime }: { png: string; mime?: string }) {
   );
 }
 
-function StreamingBubble({ text }: { text: string }) {
+function StreamingBubble({ text, since }: { text: string; since: number }) {
   // markdown re-parses on a deferred value: when tokens arrive faster than
   // the parser keeps up, React lags the parse instead of janking the frame
   const deferred = useDeferredValue(text);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [hasRenderedContent, setHasRenderedContent] = useState(false);
+  useLayoutEffect(() => {
+    const content = contentRef.current;
+    if (!content) return;
+    const visibleText = content.textContent?.replace(/[\u200b-\u200f\u2060\ufeff]/g, "").trim();
+    const visibleElement = content.querySelector("img,svg,pre,table,hr,video,audio");
+    setHasRenderedContent(Boolean(visibleText || visibleElement));
+  }, [deferred]);
   return (
     <div className="flex w-full justify-start">
       <div className="w-full min-w-0 px-1 py-1.5 text-[15px] leading-relaxed text-ink">
-        <MessageBoundary fallbackText={deferred}>
-          <ChatMarkdown text={deferred} streaming />
-        </MessageBoundary>
-        <span className="animate-caret ml-0.5 inline-block h-[14px] w-[2px] bg-ink align-middle" />
+        <div ref={contentRef}>
+          <MessageBoundary fallbackText={deferred}>
+            <ChatMarkdown text={deferred} streaming />
+          </MessageBoundary>
+        </div>
+        {hasRenderedContent ? (
+          <span className="animate-caret ml-0.5 inline-block h-[14px] w-[2px] bg-ink align-middle" />
+        ) : (
+          <div className="flex items-center gap-2.5 rounded-2xl bg-raised px-4 py-3">
+            <span className="flex items-center gap-1.5">
+              <span className="size-1.5 animate-bounce rounded-full bg-ink-secondary [animation-delay:0ms]" />
+              <span className="size-1.5 animate-bounce rounded-full bg-ink-secondary [animation-delay:150ms]" />
+              <span className="size-1.5 animate-bounce rounded-full bg-ink-secondary [animation-delay:300ms]" />
+            </span>
+            <WorkingTimer since={since} />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -649,15 +683,15 @@ function StreamingBubble({ text }: { text: string }) {
  * no React commit per second while a turn streams (upstream trick). */
 function WorkingTimer({ since }: { since: number }) {
   const ref = useRef<HTMLSpanElement>(null);
+  const label = () => `Working for ${Math.max(0, Math.round((Date.now() - since) / 1000))}s`;
   useEffect(() => {
     const tick = () => {
-      if (ref.current) ref.current.textContent = `Working for ${Math.max(0, Math.round((Date.now() - since) / 1000))}s`;
+      if (ref.current) ref.current.textContent = label();
     };
-    tick();
     const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
   }, [since]);
-  return <span ref={ref} className="text-[12.5px] text-ink-secondary" />;
+  return <span ref={ref} className="text-[12.5px] text-ink-secondary">{label()}</span>;
 }
 
 /** The settled transcript, memoized as one unit: during streaming every
@@ -697,7 +731,9 @@ const MessagesList = memo(function MessagesList({
   const { state, dispatch } = useStore();
   const rows = useMemo(() => commandRunRows(messages), [messages]);
   const fallbackActiveTurnId = bot.busy
-    ? [...rows].reverse().find((row): row is CommandRunRow => row.kind === "command-run" && Boolean(currentCommand(row.messages) || hasPendingApproval(row.messages)))?.turnId
+    ? [...commandRuns(rows)].reverse().find(
+        (row) => Boolean(currentCommand(row.messages) || hasPendingApproval(row.messages)),
+      )?.turnId
     : undefined;
   const liveTurnId = activeTurnId ?? fallbackActiveTurnId;
   let previousRenderedAt: number | undefined;
@@ -714,8 +750,7 @@ const MessagesList = memo(function MessagesList({
             !message.card.dismissed,
         );
         if (pendingApproval) return <ApprovalCard bot={bot} message={pendingApproval} />;
-        const current = currentCommand(entry.messages);
-        return current ? <CurrentCommandRow message={current} /> : null;
+        return <CommandRunGroup run={entry} focusedMessageId={state.focusMessage?.messageId} />;
       }
       return <CommandRunGroup run={entry} focusedMessageId={state.focusMessage?.messageId} />;
     }
@@ -879,6 +914,7 @@ export function ChatView({ bot }: { bot: Bot }) {
 
   const stream = useStreaming();
   const streaming = stream.streaming[bot.threadId];
+  const visibleStreaming = hasVisibleStreamingText(streaming) ? streaming : undefined;
   const reasoning = stream.reasoning[bot.threadId];
   const provisioning = state.provisioning[bot.id];
   const mascotMotion = state.mascotMotion?.botId === bot.id ? state.mascotMotion : null;
@@ -1271,11 +1307,11 @@ export function ChatView({ bot }: { bot: Bot }) {
               </div>
             </div>
           )}
-          {reasoning && bot.busy && <ThinkingStrip text={reasoning} active={!streaming} />}
-          {streaming ? (
-            <StreamingBubble text={streaming} />
+          {reasoning && bot.busy && <ThinkingStrip text={reasoning} active={!visibleStreaming} />}
+          {visibleStreaming ? (
+            <StreamingBubble text={visibleStreaming} since={lastUserMessage?.at ?? Date.now()} />
           ) : (
-            showWorkingDots(bot.busy, streaming, messages.at(-1)) && (
+            showWorkingDots(bot.busy, visibleStreaming, messages.at(-1)) && (
               <div className="flex justify-start">
                 <div className="flex items-center gap-2.5 rounded-2xl bg-raised px-4 py-3">
                   <span className="flex items-center gap-1.5">

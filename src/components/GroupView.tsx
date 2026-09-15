@@ -34,7 +34,7 @@ import { cn } from "@/lib/cn";
 import { useFocusMessage } from "@/lib/focus-message";
 import { shortPath } from "@/lib/short-path";
 import { BOTTOM_FOLLOW_THRESHOLD, shouldResumeBottomFollow } from "@/lib/bottom-follow";
-import { showWorkingDots } from "@/lib/turn-tail";
+import { hasVisibleStreamingText, showWorkingDots } from "@/lib/turn-tail";
 import { splitAttachedImages } from "@/lib/composer-attachments";
 import {
   TRANSCRIPT_WINDOW_SIZE,
@@ -537,10 +537,11 @@ export function GroupView({ group }: { group: Group }) {
   const { state, dispatch, loadEarlierMessages } = useStore();
   const stream = useStreaming();
   const streaming = stream.streaming[group.threadId];
+  const visibleStreaming = hasVisibleStreamingText(streaming) ? streaming : undefined;
   const channelStreams = Object.entries(group.memberSessions ?? {}).flatMap(([botId, threadId]) => {
     const bot = state.bots.find((member) => member.id === botId);
     const text = stream.streaming[threadId];
-    return bot && group.memberIds.includes(botId) && text ? [{ bot, threadId, text }] : [];
+    return bot && group.memberIds.includes(botId) && hasVisibleStreamingText(text) ? [{ bot, threadId, text }] : [];
   });
   const channelStreamText = channelStreams.map((entry) => entry.text).join("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -954,7 +955,7 @@ export function GroupView({ group }: { group: Group }) {
               </button>
             </div>
           )}
-          {speaker && showWorkingDots(true, streaming, group.messages.at(-1), speaker.id) && (
+          {speaker && showWorkingDots(true, visibleStreaming, group.messages.at(-1), speaker.id) && (
             <>
               <ClusterLabel bot={speaker} name={speaker.name} color={speaker.color} />
               <div className="flex justify-start">
@@ -966,10 +967,10 @@ export function GroupView({ group }: { group: Group }) {
               </div>
             </>
           )}
-          {speaker && streaming && (
+          {speaker && visibleStreaming && (
             <>
               <ClusterLabel bot={speaker} name={speaker.name} color={speaker.color} />
-              <StreamingBubble text={streaming} />
+              <StreamingBubble text={visibleStreaming} />
             </>
           )}
           {channelStreams.map(({ bot, threadId, text }) => <div key={threadId} aria-label={`${bot.name} reply`}>
