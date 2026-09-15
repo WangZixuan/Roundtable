@@ -2,7 +2,7 @@ import { z } from "zod";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { schemaIssue, type JsonValue } from "./schema.ts";
-import type { MausColor } from "./store.ts";
+import type { AgentColor } from "./store.ts";
 import type { TeamManifestMember } from "./team-manifest.ts";
 
 export const BOT_PACKAGE_FORMAT = "openmaus.package" as const;
@@ -20,7 +20,7 @@ const COLORS = [
   "yellow",
   "teal",
   "coral",
-] as const satisfies readonly MausColor[];
+] as const satisfies readonly AgentColor[];
 
 const requiredText = (max: number) =>
   z.string({ error: "must be text" }).trim().min(1, { message: "is required" }).max(max, { message: "is too long" });
@@ -69,7 +69,6 @@ const packageSchema = z.object({
       description: optionalText(4_000),
       appearance: z.object({
         color: z.enum(COLORS, { error: "is not supported" }),
-        mascotExpression: optionalText(80),
       }),
       playbooks: z.array(key).max(40).optional(),
     })).min(1).max(200),
@@ -250,7 +249,6 @@ export function packageAgentAsMember(agent: BotPackageAgent): TeamManifestMember
     description: agent.description ?? "",
     appearance: {
       color: agent.appearance.color,
-      ...(agent.appearance.mascotExpression ? { mascotExpression: agent.appearance.mascotExpression } : {}),
     },
   };
 }

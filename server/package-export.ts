@@ -102,7 +102,6 @@ export function createBotPackageExport(input: {
   const id = portableKey(input.name, "openmaus-package", new Set());
   const agents: BotPackageDefinition["agents"] = bots.map((bot) => {
     const appearance: BotPackageDefinition["agents"][number]["appearance"] = { color: bot.color };
-    if (bot.mascotExpression) appearance.mascotExpression = bot.mascotExpression;
     const agent: BotPackageDefinition["agents"][number] = {
       key: idToKey.get(bot.id)!,
       name: bot.name,

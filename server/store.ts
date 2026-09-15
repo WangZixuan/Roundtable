@@ -14,25 +14,9 @@ import { newId, type CloudBackend, type ModelSelection, type ThreadId } from "./
 import { pickBotName } from "./names.ts";
 import { redactSecretsInText } from "./redact.ts";
 import { botAvatarProfile, type BotAvatarCrop } from "../shared/bot-avatar.ts";
+import { agentColorForName, type AgentColor } from "../shared/agent-avatar.ts";
 
-export type MausColor =
-  | "green"
-  | "blue"
-  | "red"
-  | "orange"
-  | "purple"
-  | "cyan"
-  | "pink"
-  | "yellow"
-  | "teal"
-  | "coral";
-
-/**
- * The face a bot rests on, as one of the engine's state names. Kept as a plain
- * string rather than a union: bots saved under the app's earlier ten-face
- * vocabulary still carry those names, and the client resolves both on read.
- */
-export type MausExpression = string;
+export type { AgentColor } from "../shared/agent-avatar.ts";
 
 export interface OptionCardData {
   title: string;
@@ -296,11 +280,10 @@ export interface BotRecord {
   title: string;
   description: string;
   notifications: boolean;
-  color: MausColor;
-  mascotExpression?: MausExpression | null;
+  color: AgentColor;
   /** App-owned attachment served as this bot's custom profile image. */
   avatarUrl?: string;
-  /** Mascot, or the crop applied to avatarUrl. */
+  /** Initials, or the crop applied to avatarUrl. */
   avatarCrop?: BotAvatarCrop;
   unread: boolean;
   modelSelection: ModelSelection;
@@ -385,19 +368,6 @@ export interface InstalledPackageMetadata {
 const BOTS_FILE = join(DATA_DIR, "bots.json");
 const GROUPS_FILE = join(DATA_DIR, "groups.json");
 const messagesFile = (threadId: string) => join(DATA_DIR, `messages-${threadId}.json`);
-
-const COLORS: MausColor[] = [
-  "green",
-  "blue",
-  "red",
-  "orange",
-  "purple",
-  "cyan",
-  "pink",
-  "yellow",
-  "teal",
-  "coral",
-];
 
 /** Sections are persisted as display labels, so exact trimmed labels are
  * their identity. Missing/blank means the unsectioned (General) team. */
@@ -509,6 +479,10 @@ export class Store {
       }
       if (b.avatarCrop !== undefined && avatar.avatarCrop !== b.avatarCrop) {
         delete b.avatarCrop;
+        botsMigrated = true;
+      }
+      if ("mascotExpression" in stale) {
+        delete stale.mascotExpression;
         botsMigrated = true;
       }
     }
@@ -867,7 +841,7 @@ export class Store {
 
   createBot(
     profile: Partial<
-      Pick<BotRecord, "name" | "title" | "description" | "color" | "mascotExpression" | "modelSelection" | "section">
+      Pick<BotRecord, "name" | "title" | "description" | "color" | "modelSelection" | "section">
     > = {},
     opts: {
       /** false = no greeting/onboarding seed. Imported bots must not open
@@ -884,8 +858,7 @@ export class Store {
       title: profile.title ?? "",
       description: profile.description ?? "",
       notifications: true,
-      color: profile.color ?? COLORS[this.bots.length % COLORS.length],
-      ...(profile.mascotExpression ? { mascotExpression: profile.mascotExpression } : {}),
+      color: profile.color ?? agentColorForName(name),
       unread: false,
       modelSelection: profile.modelSelection ?? this.defaultSelection(),
       resumeCursors: {},

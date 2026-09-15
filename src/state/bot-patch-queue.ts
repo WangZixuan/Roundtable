@@ -11,7 +11,6 @@ export type BotUpdatePatch = Partial<
     | "computer"
     | "cloudBackend"
     | "color"
-    | "mascotExpression"
     | "avatarUrl"
     | "avatarCrop"
     | "autoApprove"

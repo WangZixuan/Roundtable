@@ -1,21 +1,18 @@
 // App settings, as a real modal with sections rather than one long panel.
-// Per-bot settings (persona, model, computer) stay in SettingsPanel — this
-// is the stuff shared by every bot: who you are, your keys, and the
-// machine your bots can borrow.
+// Per-Agent settings live in the Agents workspace — this
+// is the stuff shared by every agent: profile, engines, and runtime policy.
 import { useEffect, useRef, useState } from "react";
-import { Coins, KeyRound, Search, Sparkles, Terminal, User, X } from "lucide-react";
+import { Coins, Search, Sparkles, Terminal, User, X } from "lucide-react";
 import { api, useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
 import { analyticsEnabled, setAnalyticsEnabled } from "@/lib/analytics";
 import { skillRecorderEnabled } from "@/lib/feature-flags";
 import { orchestrationFetch } from "@/lib/orchestration";
-import { ApiKeyRow } from "./ApiKeys";
 import { useUpdaterState } from "@/lib/updater";
 import { EnginesSettings } from "./EnginesSettings";
 import { Card } from "./SettingsPrimitives";
 import { UsageSection } from "./UsageSection";
 import { SkinPicker } from "./SkinPicker";
 import { RoomTurnTimeoutSettings } from "./RoomTurnTimeoutSettings";
-import { TranscriptionSettings } from "./TranscriptionSettings";
 import { cn } from "@/lib/cn";
 import { CoordinatorSettings } from "./CoordinatorSettings";
 
@@ -26,7 +23,6 @@ const SECTIONS: Array<{
   keywords: string[];
 }> = [
   { id: "general", label: "General", icon: User, keywords: ["profile", "name", "email", "skin", "theme", "appearance", "analytics", "updates"] },
-  { id: "connections", label: "Connections", icon: KeyRound, keywords: ["keys", "api", "composio", "box", "xai"] },
   { id: "engines", label: "Engines", icon: Terminal, keywords: ["models", "claude", "grok", "providers", "cli"] },
   { id: "coordinator", label: "Coordinator", icon: Sparkles, keywords: ["planner", "dag", "policy", "fallback", "runtime"] },
   { id: "usage", label: "Usage", icon: Coins, keywords: ["tokens", "cost", "billing"] },
@@ -388,19 +384,6 @@ export function SettingsModal() {
                 <DiagnosticsRow />
                 <AnalyticsRow />
               </>
-            )}
-
-            {section === "connections" && (
-              <Card
-                title="Connections"
-                subtitle="Optional service keys stay on this computer."
-              >
-                <div className="flex flex-col gap-4">
-                  <TranscriptionSettings />
-                  <ApiKeyRow section="box" />
-                  <ApiKeyRow section="opencodeGo" />
-                </div>
-              </Card>
             )}
 
             {section === "engines" && (

@@ -16,12 +16,9 @@ import {
   Loader2,
   Network,
   Pencil,
-  PanelLeftClose,
-  PanelLeftOpen,
   Pin,
   PinOff,
   Plus,
-  RefreshCw,
   Search,
   Sparkles,
   Settings,
@@ -32,8 +29,6 @@ import {
 import { api, useStore, formatTime, visibleMessages, type Bot, type Group } from "@/state/store";
 
 import { BotAvatar, InitialsAvatar, STANDARD_BOT_AVATAR_SIZE } from "./Avatar";
-import { stateForBot } from "@/lib/mascot";
-import { useUpdaterState } from "@/lib/updater";
 import { cn } from "@/lib/cn";
 import { skillRecorderEnabled } from "@/lib/feature-flags";
 import { nextRename } from "@/lib/rename";
@@ -43,11 +38,6 @@ import { MIN_QUERY, SearchResults } from "./SearchResults";
 import { TeamLibraryPanel, type TeamImportResult } from "./TeamLibraryPanel";
 import { RenameTitle } from "./RenameTitle";
 import { BotPickerList } from "./BotPickerList";
-import {
-  loadSidebarDensity,
-  saveSidebarDensity,
-  type SidebarDensity,
-} from "@/lib/sidebar-preferences";
 
 /** "Milind Soni" → "MS", "milind" → "M", "you@x.dev" → "Y", unset → "?" */
 function profileInitials(profile?: { name?: string; email?: string }): string {
@@ -61,82 +51,6 @@ function profileInitials(profile?: { name?: string; email?: string }): string {
   }
   const email = profile?.email?.trim();
   return email ? email[0]!.toUpperCase() : "?";
-}
-
-/** Manual update check, next to the settings gear. Packaged app only (no
- * bridge in dev/browser). One button, state-dependent: check → download →
- * restart, with a brief "up to date" tick when a check finds nothing so a
- * click is never silent. The bottom-left popup handles the loud cases. */
-function UpdateButton() {
-  const s = useUpdaterState();
-  const [checkedAt, setCheckedAt] = useState(0);
-  const updater = window.ogb?.updater;
-  const status = s?.status ?? "idle";
-  // download and install both round-trip through main before the status
-  // changes — spin on the click itself, and let the new status clear it
-  const [pending, setPending] = useState(false);
-  useEffect(() => setPending(false), [status]);
-  // a check that found nothing lands back on idle — acknowledge it for 3s
-  const upToDate = Boolean(checkedAt) && (!s || s.status === "idle") && Date.now() - checkedAt < 3000;
-  useEffect(() => {
-    if (!upToDate) return;
-    const timer = setTimeout(() => setCheckedAt(0), 3000);
-    return () => clearTimeout(timer);
-  }, [upToDate]);
-  if (!updater) return null;
-
-  const working =
-    pending || status === "checking" || status === "downloading" || status === "installing";
-  const label =
-    status === "available"
-      ? `Version ${s?.version ?? ""} available — download`
-      : status === "downloading"
-        ? s?.percent == null
-          ? "Starting download…"
-          : `Downloading… ${Math.round(s.percent)}%`
-        : status === "downloaded"
-          ? `Version ${s?.version ?? ""} ready — restart to update`
-          : status === "installing"
-            ? "Restarting to update…"
-            : status === "checking"
-              ? "Checking for updates…"
-              : upToDate
-                ? "You're up to date"
-                : "Check for updates";
-
-  return (
-    <button
-      onClick={() => {
-        if (status === "downloaded") {
-          setPending(true);
-          return void updater.install();
-        }
-        if (status === "available") {
-          setPending(true);
-          return void updater.download();
-        }
-        setCheckedAt(Date.now());
-        void updater.check();
-      }}
-      disabled={working}
-      title={label}
-      aria-label={label}
-      className="relative flex size-10 items-center justify-center rounded-md text-accent hover:bg-raised disabled:opacity-60"
-    >
-      {working ? (
-        <Loader2 size={18} className="animate-spin" />
-      ) : upToDate ? (
-        <Check size={18} />
-      ) : status === "available" ? (
-        <ArrowDownToLine size={18} />
-      ) : (
-        <RefreshCw size={18} />
-      )}
-      {status === "downloaded" && (
-        <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-accent" />
-      )}
-    </button>
-  );
 }
 
 function preview(bot: Bot): string {
@@ -195,31 +109,25 @@ function conversationSelectionClass(selected: boolean): string {
 }
 
 /** Room avatar: two overlapping mauses plus a count, bounded to one bot slot. */
-function StackedMauses({ members, density }: { members: Bot[]; density: SidebarDensity }) {
-  const iconOnly = density === "icons";
-  const slotSize = iconOnly ? "size-9" : density === "compact" ? "size-7" : "size-8";
-  const singleSize = iconOnly ? 36 : density === "compact" ? 28 : 32;
+function StackedMauses({ members }: { members: Bot[] }) {
   if (members.length <= 1) {
     const b = members[0];
     return (
-      <div className={cn("flex shrink-0 items-center justify-center", slotSize)}>
-        {b ? <BotAvatar bot={b} state="happy" size={singleSize} animated={false} /> : <Users size={20} className="text-ink-secondary" />}
+      <div className="flex size-8 shrink-0 items-center justify-center">
+        {b ? <BotAvatar bot={b} state="happy" size={32} animated={false} /> : <Users size={20} className="text-ink-secondary" />}
       </div>
     );
   }
   const shown = members.slice(0, 2);
   const extra = members.length - shown.length;
-  const avatarSize = iconOnly ? 22 : density === "compact" ? 18 : 20;
-  const overlap = iconOnly ? "-space-x-[13px]" : density === "compact" ? "-space-x-[11px]" : "-space-x-3";
-  const countSize = iconOnly ? "size-4 text-[8px]" : density === "compact" ? "size-3.5 text-[8px]" : "size-4 text-[8px]";
   return (
-    <div className={cn("flex shrink-0 items-center justify-center overflow-hidden", slotSize)}>
-      <div className={cn("flex max-w-full items-center", overlap)}>
+    <div className="flex size-8 shrink-0 items-center justify-center overflow-hidden">
+      <div className="flex max-w-full items-center -space-x-3">
         {shown.map((b) => (
-          <BotAvatar key={b.id} bot={b} state="happy" size={avatarSize} animated={false} />
+          <BotAvatar key={b.id} bot={b} state="happy" size={20} animated={false} />
         ))}
         {extra > 0 && (
-          <span className={cn("z-10 flex shrink-0 items-center justify-center rounded-full border border-hairline/40 bg-raised font-medium text-ink-secondary", countSize)}>
+          <span className="z-10 flex size-4 shrink-0 items-center justify-center rounded-full border border-hairline/40 bg-raised text-[8px] font-medium text-ink-secondary">
             +{extra}
           </span>
         )}
@@ -230,11 +138,9 @@ function StackedMauses({ members, density }: { members: Bot[]; density: SidebarD
 
 function GroupListItem({
   group,
-  density,
   onMenu,
 }: {
   group: Group;
-  density: SidebarDensity;
   onMenu: (menu: { groupId: string; x: number; y: number }) => void;
 }) {
   const { state, dispatch } = useStore();
@@ -243,7 +149,6 @@ function GroupListItem({
     .map((id) => state.bots.find((b) => b.id === id))
     .filter((b): b is Bot => Boolean(b));
   const last = group.messages.at(-1) ?? group.lastMessage;
-  const comfortable = density === "comfortable";
   const usefulPreview = hasUsefulGroupPreview(group);
   const secondary = usefulPreview ? groupPreview(group, state.bots) : memberCountLabel(members.length);
   return (
@@ -263,31 +168,21 @@ function GroupListItem({
         onMenu({ groupId: group.id, x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
       }}
       className={cn(
-        "relative flex w-full shrink-0 items-center rounded-lg border border-transparent text-left",
-        density === "icons"
-          ? "h-[52px] justify-center px-1"
-          : density === "compact"
-            ? "h-12 gap-2 px-2"
-            : "h-14 gap-2.5 px-2.5",
+        "relative flex h-14 w-full shrink-0 items-center gap-2.5 rounded-lg border border-transparent px-2.5 text-left",
         conversationSelectionClass(selected),
       )}
-      title={density === "icons" ? group.name : undefined}
-      aria-label={density === "icons" ? group.name : undefined}
     >
-      <StackedMauses members={members} density={density} />
-      <div className={cn("min-w-0 flex-1", density === "icons" && "hidden")}>
+      <StackedMauses members={members} />
+      <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
           <span className="truncate text-[15px] font-semibold text-ink">{group.name}</span>
           <span className="flex shrink-0 items-center gap-2">
-            {comfortable && selected && last && <span className="text-xs text-ink-secondary">{formatTime(last.at)}</span>}
+            {selected && last && <span className="text-xs text-ink-secondary">{formatTime(last.at)}</span>}
             {group.unread && <span className="size-2 rounded-full bg-accent" />}
           </span>
         </div>
-        {comfortable && <div className="truncate text-[13px] text-ink-secondary">{secondary}</div>}
+        <div className="truncate text-[13px] text-ink-secondary">{secondary}</div>
       </div>
-      {density === "icons" && group.unread && (
-        <span className="absolute bottom-1.5 right-1.5 size-2 rounded-full border border-panel bg-accent" />
-      )}
     </button>
   );
 }
@@ -717,7 +612,7 @@ function BotContextMenu({
         divider("d1"),
         item(<Pencil size={16} className="text-ink-secondary" />, "Edit Profile", () => {
           dispatch({ type: "select", id: bot.id });
-          dispatch({ type: "toggleSettings", open: true });
+          dispatch({ type: "showAgents", botId: bot.id });
         }),
         item(<Copy size={16} className="text-ink-secondary" />, "Duplicate", () =>
           dispatch({ type: "duplicateBot", botId: bot.id }),
@@ -746,54 +641,33 @@ function BotContextMenu({
 
 function BotListItem({
   bot,
-  density,
   onMenu,
 }: {
   bot: Bot;
-  density: SidebarDensity;
   onMenu: (menu: MenuState) => void;
 }) {
   const { state, dispatch } = useStore();
   const [renaming, setRenaming] = useState(false);
   const selected = state.activeView === "chat" && state.selectedId === bot.id;
-  const iconOnly = density === "icons";
-  useEffect(() => {
-    if (iconOnly) setRenaming(false);
-  }, [iconOnly]);
-  const comfortable = density === "comfortable";
-  // Fill the icon-only selection tile: the mascot's SVG retains internal
-  // breathing room for motion effects, so 36px made its visible halo too small.
-  const avatarSize = iconOnly ? 44 : density === "compact" ? 32 : STANDARD_BOT_AVATAR_SIZE;
   // the visible branch, so a version switch changes the row with the chat
   const visible = visibleMessages(bot);
   const last = visible.at(-1) ?? bot.lastMessage;
-  const rowClass = cn(
-    "relative flex w-full shrink-0 items-center rounded-lg border text-left",
-    iconOnly
-      ? "h-[52px] justify-center px-1"
-      : density === "compact"
-        ? "h-12 gap-2 px-2"
-        : "h-14 gap-2.5 px-2.5",
-    selected
-      ? cn("border-transparent", conversationSelectionClass(true))
-      : cn("border-transparent", conversationSelectionClass(false)),
-  );
+  const rowClass = "flex w-full shrink-0 items-center gap-2.5 text-left focus-visible:outline-none";
   const body = (
     <>
       <BotAvatar
         bot={bot}
-        state={stateForBot({ ...bot, messages: visible })}
-        size={avatarSize}
+        size={STANDARD_BOT_AVATAR_SIZE}
         motion="none"
         motionKey={0}
         animated={false}
       />
-      <div className={cn("min-w-0 flex-1", iconOnly && "hidden")}>
+      <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
           <span className="flex min-w-0 items-center gap-1.5 truncate text-[15px] font-semibold text-ink">
             {bot.pinned && <Pin size={12} className="shrink-0 text-ink-secondary" />}
             <RenameTitle
-              key={iconOnly ? "icons" : "expanded"}
+              key="comfortable"
               value={bot.name}
               onCommit={(name) => dispatch({ type: "updateBot", botId: bot.id, patch: { name } })}
               onEditingChange={setRenaming}
@@ -801,21 +675,20 @@ function BotListItem({
               inputClassName="w-full rounded bg-inset px-1 py-0.5 text-[15px] font-semibold"
             />
           </span>
-          {comfortable && selected && last && !renaming && (
+          {selected && last && !renaming && (
             <span className="shrink-0 text-xs text-ink-secondary transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
               {formatTime(last.at)}
             </span>
           )}
-          {!comfortable && bot.unread && <span className="size-2 shrink-0 rounded-full bg-accent" />}
         </div>
-        {comfortable && <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center justify-between gap-2">
           <span className="flex min-w-0 items-center gap-1.5 truncate text-[13px] text-ink-secondary">
             <span className="truncate">{preview(bot)}</span>
           </span>
           {bot.unread && (
             <span className="size-2 shrink-0 rounded-full bg-accent" />
           )}
-        </div>}
+        </div>
       </div>
     </>
   );
@@ -835,11 +708,10 @@ function BotListItem({
   }
 
   return (
-    <div className="group relative" title={iconOnly ? bot.name : undefined}>
+    <div className="group relative">
       <div
         role="button"
         tabIndex={0}
-        aria-label={iconOnly ? bot.name : undefined}
         onClick={() => dispatch({ type: "select", id: bot.id })}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
@@ -852,9 +724,6 @@ function BotListItem({
       >
         {body}
       </div>
-      {iconOnly && bot.unread && (
-        <span className="pointer-events-none absolute bottom-1.5 right-1.5 size-2 rounded-full border border-panel bg-accent" />
-      )}
     </div>
   );
 }
@@ -1015,32 +884,8 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     restoreBot?: { id: string; name: string };
   } | null>(null);
   const [query, setQuery] = useState("");
-  const [density, setDensityState] = useState<SidebarDensity>(() => loadSidebarDensity());
-  const [lastExpandedDensity, setLastExpandedDensity] = useState<Exclude<SidebarDensity, "icons">>(() => {
-    const saved = loadSidebarDensity();
-    return saved === "icons" ? "comfortable" : saved;
-  });
-  const [densityOpen, setDensityOpen] = useState(false);
 
-  const setDensity = (next: SidebarDensity) => {
-    setDensityState(next);
-    if (next !== "icons") setLastExpandedDensity(next);
-    // Search is hidden in avatar-only mode. Keeping its value would silently
-    // filter bots, rooms, and message results with no visible way to clear it.
-    else setQuery("");
-    saveSidebarDensity(next);
-    setDensityOpen(false);
-  };
-
-  const toggleCollapsed = () => {
-    if (density === "icons") setDensity(lastExpandedDensity);
-    else {
-      setLastExpandedDensity(density);
-      setDensity("icons");
-    }
-  };
-
-  // Esc closes the drawer, mirroring ApiKeys.tsx:75-85. Bound only while the
+  // Esc closes the drawer. Bound only while the
   // drawer is open — on mobile, exactly when a bot/room context menu or the
   // New Room panel can be open on top of it, so the same Escape press closes
   // them together. Fine, since both directions are "get me out of here."
@@ -1052,15 +897,6 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     document.addEventListener("keydown", closeOnEscape);
     return () => document.removeEventListener("keydown", closeOnEscape);
   }, [open, onClose]);
-
-  useEffect(() => {
-    if (!densityOpen) return;
-    const closeDensityMenu = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setDensityOpen(false);
-    };
-    window.addEventListener("keydown", closeDensityMenu);
-    return () => window.removeEventListener("keydown", closeDensityMenu);
-  }, [densityOpen]);
 
   useEffect(() => {
     return window.ogb?.onPackageInstall?.((url) => {
@@ -1177,7 +1013,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   const macInset = capabilities.windowChrome === "mac-inset";
   const browser = capabilities.host.label === "Browser";
   const titleBarOverlay = !browser && !macInset;
-  const titleBarButtonSize = macInset && density !== "icons" ? "size-8" : "size-10";
+  const titleBarButtonSize = macInset ? "size-8" : "size-10";
   // SAFETY: Electron's documented -webkit-app-region CSS property is not in
   // React's CSSProperties type, but the renderer accepts it as an inline style.
   const windowDragStyle = !browser
@@ -1230,8 +1066,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     <aside
       aria-label="Bots and navigation"
       className={cn(
-        "flex h-full shrink-0 flex-col border-r border-hairline/40 bg-panel transition-[width] duration-200",
-        density === "icons" ? "w-[80px]" : density === "compact" ? "w-[272px]" : "w-[320px]",
+        "flex h-full w-[320px] shrink-0 flex-col border-r border-hairline/40 bg-panel",
         // Below md only: the sidebar leaves the flow and slides in over the chat.
         // Scoped with max-md: rather than cancelled with md: on purpose — Tailwind
         // v4 emits the native `translate` property, and any value other than
@@ -1247,16 +1082,14 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       {/* The title-bar strip moves the desktop window; controls remain clickable. */}
       <div
         className={cn(
-          "flex items-center",
-          density !== "icons" && (titleBarOverlay || macInset ? "h-12" : "pt-3.5 pb-1"),
-          density === "icons" && "pt-3.5 pb-1",
-          density === "icons" ? "flex-col gap-1 px-2" : "justify-between px-4",
+          "flex items-center justify-between px-4",
+          titleBarOverlay || macInset ? "h-12" : "pt-3.5 pb-1",
         )}
         style={windowDragStyle}
       >
-        <div className={cn("flex min-w-0 items-center gap-2", density === "icons" && "w-full flex-col")}>
+        <div className="flex min-w-0 items-center gap-2">
           {macInset ? (
-            <div className={density === "icons" ? "h-5 w-full" : "w-14"} />
+            <div className="w-14" />
           ) : browser ? (
             <div className="flex items-center gap-2">
               <span className="size-3 rounded-full bg-[#ff5f57]" />
@@ -1266,68 +1099,16 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           ) : null}
           {titleBarOverlay && (
             <span
-              className={cn(
-                "select-none truncate text-sm font-semibold text-ink",
-                density === "icons" && "w-full text-center text-[10px] leading-tight",
-              )}
+              className="select-none truncate text-sm font-semibold text-ink"
             >
               Roundtable
             </span>
           )}
         </div>
         <div
-          className={cn("relative flex items-center", density === "icons" ? "flex-col gap-1" : "gap-1")}
+          className="relative flex items-center gap-1"
           style={windowNoDragStyle}
         >
-          <button
-            type="button"
-            onClick={toggleCollapsed}
-            aria-label={density === "icons" ? "Expand sidebar" : "Collapse sidebar to avatars"}
-            className={cn("flex items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink", titleBarButtonSize)}
-            title={density === "icons" ? "Expand sidebar" : "Collapse to avatars"}
-          >
-            {density === "icons" ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}
-          </button>
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setDensityOpen((value) => !value)}
-              aria-label="Choose sidebar density"
-              aria-expanded={densityOpen}
-              className={cn("flex items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink", titleBarButtonSize)}
-              title="Sidebar density"
-            >
-              <span aria-hidden="true" className="flex size-5 flex-col items-center justify-center gap-[3px]">
-                <span className="h-px w-3.5 rounded-full bg-current" />
-                <span className="h-px w-2.5 rounded-full bg-current" />
-                <span className="h-px w-3.5 rounded-full bg-current" />
-              </span>
-            </button>
-            {densityOpen && (
-              <>
-                <div className="fixed inset-0 z-30" onMouseDown={() => setDensityOpen(false)} />
-                <div className={cn(
-                  "absolute top-full z-40 mt-1 w-40 overflow-hidden rounded-xl border border-hairline/50 bg-card py-1.5 shadow-2xl shadow-black/60",
-                  density === "icons" ? "left-0" : "right-0",
-                )}>
-                  {(["comfortable", "compact", "icons"] as const).map((option) => (
-                    <button
-                      key={option}
-                      type="button"
-                      onClick={() => setDensity(option)}
-                      className={cn(
-                        "flex w-full items-center justify-between px-3 py-2 text-left text-[13px] capitalize hover:bg-raised/70",
-                        density === option ? "text-accent" : "text-ink",
-                      )}
-                    >
-                      {option === "icons" ? "Avatars only" : option}
-                      {density === option && <Check size={14} />}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
           <button
             ref={importReturnRef}
             onClick={() => setPlusOpen((o) => !o)}
@@ -1340,15 +1121,12 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           {plusOpen && (
             <>
               <div className="fixed inset-0 z-30" onMouseDown={() => setPlusOpen(false)} />
-              <div className={cn(
-                "absolute top-full z-40 mt-1 w-44 overflow-hidden rounded-xl border border-hairline/50 bg-card py-1.5 shadow-2xl shadow-black/60",
-                density === "icons" ? "left-0" : "right-0",
-              )}>
+              <div className="absolute right-0 top-full z-40 mt-1 w-44 overflow-hidden rounded-xl border border-hairline/50 bg-card py-1.5 shadow-2xl shadow-black/60">
                 <button
                   onClick={() => {
                     setPlusOpen(false);
                     track("bot_created");
-                    dispatch({ type: "newBot" });
+                    dispatch({ type: "startAgentCreate" });
                   }}
                   className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
                 >
@@ -1406,7 +1184,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       </div>
 
       {/* Search */}
-      <div className={cn("pt-2 pb-3", density === "icons" ? "hidden" : "px-3")}>
+      <div className="px-3 pb-3 pt-2">
         <div className="flex items-center gap-2 rounded-lg bg-raised/70 px-3 py-2">
           <Search size={16} className="text-ink-secondary" />
           <input
@@ -1426,26 +1204,25 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           {visibleBots.length === 0 && sectionedBots.length === 0 && visibleGroups.length === 0 && q && q.length < MIN_QUERY && (
             <div className="px-3 py-6 text-center text-[13px] text-ink-secondary">Nothing matches “{query}”</div>
           )}
-          {unsectionedGroups.length > 0 && density !== "icons" && <SectionDivider name="Channels" />}
+          {unsectionedGroups.length > 0 && <SectionDivider name="Channels" />}
           {unsectionedGroups.map((g) => (
-            <GroupListItem key={g.id} group={g} density={density} onMenu={setRoomMenu} />
+            <GroupListItem key={g.id} group={g} onMenu={setRoomMenu} />
           ))}
-          {visibleBots.length > 0 && density !== "icons" && <SectionDivider name="Bots" />}
+          {visibleBots.length > 0 && <SectionDivider name="Bots" />}
           {visibleBots.map((b) => (
             <BotListItem
               key={b.id}
               bot={b}
-              density={density}
               onMenu={setMenu}
             />
           ))}
           {sectionNames.map((name) => (
             <Fragment key={name}>
-              {density !== "icons" && <SectionDivider name={name} />}
+              <SectionDivider name={name} />
               {sectionedGroups
                 .filter((g) => g.section === name)
                 .map((g) => (
-                  <GroupListItem key={g.id} group={g} density={density} onMenu={setRoomMenu} />
+                  <GroupListItem key={g.id} group={g} onMenu={setRoomMenu} />
                 ))}
               {sectionedBots
                 .filter((b) => b.section === name)
@@ -1453,7 +1230,6 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                   <BotListItem
                     key={b.id}
                     bot={b}
-                    density={density}
                     onMenu={setMenu}
                   />
                 ))}
@@ -1464,71 +1240,59 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       </div>
 
       {/* Footer */}
-      <div className={cn("pb-3 pt-2", density === "icons" ? "px-2" : "px-3")}>
+      <div className="px-3 pb-3 pt-2">
         <button
           onClick={() => dispatch({ type: "showTeamMap" })}
-          aria-label={density === "icons" ? "Team map" : undefined}
-          title={density === "icons" ? "Team map" : undefined}
           className={cn(
-            "flex min-h-10 w-full items-center rounded-xl py-2 text-left transition-colors",
-            density === "icons" ? "justify-center px-2" : "gap-3 px-3",
+            "flex min-h-10 w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors",
             state.activeView === "team-map" ? "bg-raised text-ink" : "text-ink hover:bg-raised/50",
           )}
         >
           <Network size={20} className={state.activeView === "team-map" ? "text-accent" : "text-ink-secondary"} />
-          <span className={cn("flex-1 text-[14px]", density === "icons" && "hidden")}>Team map</span>
+          <span className="flex-1 text-[14px]">Team map</span>
         </button>
         {skillRecorderEnabled(state.config) && (
           <button
             onClick={() => dispatch({ type: "showSkillRecorder" })}
-            aria-label={density === "icons" ? "Teach a skill" : undefined}
-            title={density === "icons" ? "Teach a skill" : undefined}
             className={cn(
-              "flex min-h-10 w-full items-center rounded-xl py-2 text-left transition-colors",
-              density === "icons" ? "justify-center px-2" : "gap-3 px-3",
+              "flex min-h-10 w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors",
               state.activeView === "skill-recorder" ? "bg-raised text-ink" : "text-ink hover:bg-raised/50",
             )}
           >
             <Sparkles size={20} className={state.activeView === "skill-recorder" ? "text-accent" : "text-ink-secondary"} />
-            <span className={cn("flex-1 text-[14px]", density === "icons" && "hidden")}>Teach a skill</span>
+            <span className="flex-1 text-[14px]">Teach a skill</span>
           </button>
         )}
         <button
           onClick={() => dispatch({ type: "showRoutines" })}
-          aria-label={density === "icons" ? "Tasks and routines" : undefined}
-          title={density === "icons" ? "Tasks and routines" : undefined}
           className={cn(
-            "flex min-h-10 w-full items-center rounded-xl py-2 text-left transition-colors",
-            density === "icons" ? "justify-center px-2" : "gap-3 px-3",
+            "flex min-h-10 w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors",
             state.activeView === "routines" ? "bg-raised text-ink" : "text-ink hover:bg-raised/50",
           )}
         >
           <CalendarDays size={20} className={state.activeView === "routines" ? "text-accent" : "text-ink-secondary"} />
-          <span className={cn("flex-1 text-[14px]", density === "icons" && "hidden")}>Tasks &amp; routines</span>
+          <span className="flex-1 text-[14px]">Tasks &amp; routines</span>
           {state.routineRuns.some((run) => ["failed", "missed"].includes(run.status) && !run.seenAt) && (
             <span className="size-2 rounded-full bg-danger" />
           )}
         </button>
-        <div className={cn("flex items-center", density === "icons" && "justify-center")}>
+        <div className="flex items-center">
           <button
             onClick={() => dispatch({ type: "toggleAppSettings" })}
-            className={cn("flex min-w-0 items-center rounded-xl py-2 text-left hover:bg-raised/50", density === "icons" ? "justify-center px-2" : "flex-1 gap-3 px-3")}
-            aria-label={density === "icons" ? "App settings" : undefined}
-            title={density === "icons" ? (state.config?.profile?.name?.trim() || "App settings") : undefined}
+            className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-3 py-2 text-left hover:bg-raised/50"
           >
             <InitialsAvatar initials={profileInitials(state.config?.profile)} size={28} />
-            <span className={cn("truncate text-[14px] text-ink", density === "icons" && "hidden")}>
+            <span className="truncate text-[14px] text-ink">
               {state.config?.profile?.name?.trim() || state.config?.profile?.email?.trim() || "You"}
             </span>
           </button>
-          {false && density !== "icons" && <UpdateButton />}
-          {density !== "icons" && <button
+          <button
             onClick={() => dispatch({ type: "toggleAppSettings" })}
             className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
             title="App settings"
           >
             <Settings size={18} />
-          </button>}
+          </button>
         </div>
       </div>
 

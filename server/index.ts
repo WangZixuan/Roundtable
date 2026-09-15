@@ -3847,8 +3847,30 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse): 
     }
 
     if (method === "POST" && path === "/api/bots") {
-      const bot = store.createBot();
-      store.patchBot(bot.id, { modelSelection: await defaultSelection() });
+      const body = await readBody(req);
+      const profile = parseBotProfilePatch(body);
+      if (!profile.ok) return json(res, 400, { error: profile.error });
+      const requestedSelection = z.object({
+        instanceId: z.string().min(1),
+        model: z.string().min(1),
+        effort: z.string().optional(),
+      }).safeParse(body.modelSelection);
+      if (body.modelSelection !== undefined && !requestedSelection.success) {
+        return json(res, 400, { error: "modelSelection needs an instance and model" });
+      }
+      if (requestedSelection.success && requestedSelection.data.effort !== undefined && !isEffortLevel(requestedSelection.data.effort)) {
+        return json(res, 400, { error: `effort "${requestedSelection.data.effort}" is not recognized` });
+      }
+      const modelSelection = requestedSelection.success
+        ? requestedSelection.data
+        : await defaultSelection();
+      const bot = store.createBot({
+        name: profile.patch.name,
+        title: profile.patch.title,
+        description: profile.patch.description,
+        modelSelection,
+      });
+      store.patchBot(bot.id, { ...profile.patch, modelSelection });
       return json(res, 201, {
         bot: {
           ...wireBot(store.bot(bot.id)!),
@@ -3878,7 +3900,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse): 
       const saved = saveImage(generated.bytes, generated.mime);
       const avatarUrl = botAvatarUrlFromStoredPath(saved.path);
       if (!avatarUrl) throw Object.assign(new Error("Could not store the generated avatar"), { status: 500 });
-      const avatarCrop = initialAvatar.avatarCrop && initialAvatar.avatarCrop !== "mascot"
+      const avatarCrop = initialAvatar.avatarCrop && initialAvatar.avatarCrop !== "initials"
         ? initialAvatar.avatarCrop
         : "circle";
       const bot = store.patchBot(current.id, { avatarUrl, avatarCrop });
@@ -3993,7 +4015,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse): 
           else section = trimmed;
         }
       }
-      for (const key of ["modelSelection", "unread", "computer", "color", "mascotExpression", "pinned", "hidden"] as const) {
+      for (const key of ["modelSelection", "unread", "computer", "color", "pinned", "hidden"] as const) {
         if (body[key] !== undefined) patch[key] = body[key];
       }
       // one pinned message per thread; null/"" clears. The id is not

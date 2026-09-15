@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { schemaIssue, type JsonValue } from "./schema.ts";
-import type { MausColor } from "./store.ts";
+import type { AgentColor } from "./store.ts";
 
 export const TEAM_MANIFEST_FORMAT = "openmaus.team" as const;
 export const TEAM_MANIFEST_VERSION = 2 as const;
@@ -19,7 +19,7 @@ const COLORS = [
   "yellow",
   "teal",
   "coral",
-] as const satisfies readonly MausColor[];
+] as const satisfies readonly AgentColor[];
 
 const requiredText = (max: number) =>
   z.string({ error: "must be text" }).trim().min(1, { message: "is required" }).max(max, { message: "is too long" });
@@ -46,7 +46,6 @@ const memberSchema = z.object({
   description: optionalText(4_000),
   appearance: z.object({
     color: z.enum(COLORS, { error: "is not supported" }),
-    mascotExpression: optionalText(80),
   }),
 });
 
@@ -87,8 +86,7 @@ export interface TeamManifestMember {
   title: string;
   description: string;
   appearance: {
-    color: MausColor;
-    mascotExpression?: string;
+    color: AgentColor;
   };
 }
 
@@ -132,8 +130,7 @@ interface ExportableBot {
   name: string;
   title: string;
   description: string;
-  color: MausColor;
-  mascotExpression?: string | null;
+  color: AgentColor;
 }
 
 interface ExportableTeam {
@@ -159,7 +156,6 @@ export function parseTeamManifest(value: TeamManifestInput): ParsedTeamManifest 
     if (seenKeys.has(member.key)) throw new Error(`Duplicate member key: ${member.key}`);
     seenKeys.add(member.key);
     const appearance: TeamManifestMember["appearance"] = { color: member.appearance.color };
-    if (member.appearance.mascotExpression) appearance.mascotExpression = member.appearance.mascotExpression;
     return {
       key: member.key,
       name: member.name,
@@ -199,8 +195,7 @@ export interface ImportedMemberProfile {
   name: string;
   title: string;
   description: string;
-  color: MausColor;
-  mascotExpression?: string;
+  color: AgentColor;
 }
 
 const MAX_MEMBER_NAME = 100;
@@ -253,7 +248,6 @@ export function importedMemberProfile(
     description: member.description,
     color: member.appearance.color,
   };
-  if (member.appearance.mascotExpression) profile.mascotExpression = member.appearance.mascotExpression;
   return profile;
 }
 
@@ -282,7 +276,6 @@ export function createTeamManifest(team: ExportableTeam, bots: ExportableBot[]):
     if (!bot) throw new Error(`Team member ${id} no longer exists`);
     const key = memberKey(bot.name, index, usedKeys);
     const appearance: TeamManifestMember["appearance"] = { color: bot.color };
-    if (bot.mascotExpression) appearance.mascotExpression = bot.mascotExpression;
     return {
       key,
       name: bot.name,

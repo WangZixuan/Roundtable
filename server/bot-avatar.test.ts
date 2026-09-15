@@ -9,7 +9,7 @@ import {
 
 describe("bot avatar profile schema", () => {
   it("accepts the two supported display shapes", () => {
-    for (const crop of ["mascot", "circle"]) {
+    for (const crop of ["initials", "circle"]) {
       expect(botAvatarCropSchema.parse(crop)).toBe(crop);
     }
     expect(botAvatarCropSchema.safeParse("rounded").success).toBe(false);
@@ -23,6 +23,10 @@ describe("bot avatar profile schema", () => {
       .toEqual({ avatarUrl, avatarCrop: "circle" });
     expect(botAvatarProfile({ avatarUrl, avatarCrop: "square" }))
       .toEqual({ avatarUrl, avatarCrop: "circle" });
+  });
+
+  it("migrates the retired mascot fallback to initials", () => {
+    expect(botAvatarProfile({ avatarCrop: "mascot" })).toEqual({ avatarCrop: "initials" });
   });
 
   it("only accepts app-owned raster attachments", () => {
@@ -48,6 +52,6 @@ describe("bot avatar profile schema", () => {
 
   it("falls back safely for malformed persisted data", () => {
     expect(botAvatarProfile({ avatarUrl: "https://example.test/pixel.png", avatarCrop: "round" }))
-      .toEqual({ avatarCrop: "mascot" });
+      .toEqual({ avatarCrop: "initials" });
   });
 });

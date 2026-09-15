@@ -99,6 +99,7 @@ export function ModelPicker({
   label,
   placement = "down",
   transparentTrigger = false,
+  onChange,
 }: {
   bot: Bot;
   className?: string;
@@ -108,6 +109,8 @@ export function ModelPicker({
   label?: ReactNode;
   placement?: "up" | "down";
   transparentTrigger?: boolean;
+  /** Draft editors can own selection locally instead of persisting it. */
+  onChange?: (selection: ModelSelection) => void;
 }) {
   const { state, dispatch, refreshInstances } = useStore();
   const [open, setOpen] = useState(false);
@@ -175,11 +178,8 @@ export function ModelPicker({
       model,
     };
     if (sameInstance && selection.effort) nextSelection.effort = selection.effort;
-    dispatch({
-      type: "setModel",
-      botId: bot.id,
-      selection: nextSelection,
-    });
+    if (onChange) onChange(nextSelection);
+    else dispatch({ type: "setModel", botId: bot.id, selection: nextSelection });
     setOpen(false);
   };
 

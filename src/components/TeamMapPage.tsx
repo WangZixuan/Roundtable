@@ -4,7 +4,6 @@ import { ArrowRight, BookOpen, Loader2, Network, Radio, RefreshCw, Save, X } fro
 
 import { BotAvatar } from "./Avatar";
 import { api, formatTime, useStore, type Bot } from "@/state/store";
-import { normalizeState } from "@/lib/mascot";
 import {
   EMPTY_TEAM_MAP_SNAPSHOT,
   buildTeamMapEdges,
@@ -32,7 +31,6 @@ function BotNode({ bot }: { bot: Bot }) {
     >
       <BotAvatar
         bot={bot}
-        state={normalizeState(bot.mascotExpression) ?? "idle"}
         size={34}
         motion="none"
         motionKey={0}
