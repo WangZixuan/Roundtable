@@ -251,11 +251,24 @@ const Transcript = memo(function Transcript({
 
 function StreamingBubble({ text }: { text: string }) {
   const deferred = useDeferredValue(text);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [hasRenderedContent, setHasRenderedContent] = useState(false);
+  useLayoutEffect(() => {
+    const content = contentRef.current;
+    if (!content) return;
+    const visibleText = content.textContent?.replace(/[\u200b-\u200f\u2060\ufeff]/g, "").trim();
+    const visibleElement = content.querySelector("img,svg,pre,table,hr,video,audio");
+    setHasRenderedContent(Boolean(visibleText || visibleElement));
+  }, [deferred]);
   return (
-    <div className="flex w-full justify-start">
+    <div className={hasRenderedContent ? "flex w-full justify-start" : "hidden"}>
       <div className="w-full min-w-0 rounded-2xl bg-card px-4 py-2.5 text-[15px] leading-relaxed text-ink">
-        <ChatMarkdown text={deferred} streaming />
-        <span className="animate-caret ml-0.5 inline-block h-[14px] w-[2px] bg-ink align-middle" />
+        <div ref={contentRef}>
+          <ChatMarkdown text={deferred} streaming />
+        </div>
+        {hasRenderedContent && (
+          <span className="animate-caret ml-0.5 inline-block h-[14px] w-[2px] bg-ink align-middle" />
+        )}
       </div>
     </div>
   );

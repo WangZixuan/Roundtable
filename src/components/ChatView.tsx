@@ -302,7 +302,7 @@ function Bubble({
   };
 
   return (
-    <div className={cn("group animate-msg-in flex w-full flex-col", user ? "items-end" : "items-start")}>
+    <div className={cn("group flex w-full flex-col", user ? "animate-msg-in items-end" : "items-start")}>
       <div className={cn("flex w-full items-center gap-1.5", user ? "justify-end" : "flex-wrap justify-start")}>
         {user && <CopyButton text={visibleText} />}
         {!user && showToolbar && (
@@ -641,7 +641,7 @@ function ScreenFrame({ png, mime }: { png: string; mime?: string }) {
   );
 }
 
-function StreamingBubble({ text, since }: { text: string; since: number }) {
+function StreamingBubble({ text }: { text: string }) {
   // markdown re-parses on a deferred value: when tokens arrive faster than
   // the parser keeps up, React lags the parse instead of janking the frame
   const deferred = useDeferredValue(text);
@@ -655,24 +655,15 @@ function StreamingBubble({ text, since }: { text: string; since: number }) {
     setHasRenderedContent(Boolean(visibleText || visibleElement));
   }, [deferred]);
   return (
-    <div className="flex w-full justify-start">
+    <div className={hasRenderedContent ? "flex w-full justify-start" : "hidden"}>
       <div className="w-full min-w-0 px-1 py-1.5 text-[15px] leading-relaxed text-ink">
         <div ref={contentRef}>
           <MessageBoundary fallbackText={deferred}>
             <ChatMarkdown text={deferred} streaming />
           </MessageBoundary>
         </div>
-        {hasRenderedContent ? (
+        {hasRenderedContent && (
           <span className="animate-caret ml-0.5 inline-block h-[14px] w-[2px] bg-ink align-middle" />
-        ) : (
-          <div className="flex items-center gap-2.5 rounded-2xl bg-raised px-4 py-3">
-            <span className="flex items-center gap-1.5">
-              <span className="size-1.5 animate-bounce rounded-full bg-ink-secondary [animation-delay:0ms]" />
-              <span className="size-1.5 animate-bounce rounded-full bg-ink-secondary [animation-delay:150ms]" />
-              <span className="size-1.5 animate-bounce rounded-full bg-ink-secondary [animation-delay:300ms]" />
-            </span>
-            <WorkingTimer since={since} />
-          </div>
         )}
       </div>
     </div>
@@ -807,6 +798,10 @@ const MessagesList = memo(function MessagesList({
         </div>
       )}
       {rows.map((entry) => {
+        const firstEntry = entry.kind === "turn" ? entry.rows[0] : entry;
+        const firstMessageId = firstEntry.kind === "message"
+          ? firstEntry.message.id
+          : firstEntry.messages[0].id;
         const lastEntry = entry.kind === "turn" ? entry.rows.at(-1)! : entry;
         const m = lastEntry.kind === "message" ? lastEntry.message : lastEntry.messages.at(-1)!;
         const row = (() => {
@@ -847,7 +842,11 @@ const MessagesList = memo(function MessagesList({
         previousRenderedAt = m.at;
         return (
           <div
-            key={entry.kind === "command-run" ? `run:${entry.turnId}` : m.id}
+            key={entry.kind === "turn"
+              ? `turn:${entry.turnId}:${firstMessageId}`
+              : entry.kind === "command-run"
+                ? `run:${entry.turnId}`
+                : m.id}
             className="contents"
             data-mid={entry.kind === "message" ? m.id : undefined}
           >
@@ -1218,39 +1217,40 @@ export function ChatView({ bot }: { bot: Bot }) {
       />
 
       {/* Messages */}
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto px-5 [overflow-anchor:none]"
-        onWheel={(e) => {
-          if (e.deltaY < 0 && e.currentTarget.scrollHeight > e.currentTarget.clientHeight) setBottomFollow(false);
-          else if (atEnd()) setBottomFollow(true);
-        }}
-        onTouchStart={(e) => (touchY.current = e.touches[0]?.clientY ?? 0)}
-        onTouchMove={(e) => {
-          const y = e.touches[0]?.clientY ?? 0;
-          if (y > touchY.current + 4) setBottomFollow(false);
-          else if (atEnd()) setBottomFollow(true);
-        }}
-        onScroll={() => {
-          const el = scrollRef.current;
-          if (!el) return;
-          const scrollTop = el.scrollTop;
-          if (scrollTop < 80 && canLoadEarlier && !pageState?.loading && (hiddenCount > 0 || !pageState?.error)) {
-            loadingFullHistory.current = true;
-            void showEarlier();
-          }
-          const resume = shouldResumeBottomFollow({
-            following: followRef.current,
-            previousScrollTop: previousScrollTop.current,
-            scrollTop,
-            distanceFromBottom: el.scrollHeight - scrollTop - el.clientHeight,
-          });
-          previousScrollTop.current = scrollTop;
-          if (resume) setBottomFollow(true);
-        }}
-      >
+      <div className="relative min-h-0 flex-1">
         <div
-          className="mx-auto flex max-w-[900px] flex-col gap-3 pb-4"
+          ref={scrollRef}
+          className="h-full overflow-y-auto px-5 [overflow-anchor:none]"
+          onWheel={(e) => {
+            if (e.deltaY < 0 && e.currentTarget.scrollHeight > e.currentTarget.clientHeight) setBottomFollow(false);
+            else if (atEnd()) setBottomFollow(true);
+          }}
+          onTouchStart={(e) => (touchY.current = e.touches[0]?.clientY ?? 0)}
+          onTouchMove={(e) => {
+            const y = e.touches[0]?.clientY ?? 0;
+            if (y > touchY.current + 4) setBottomFollow(false);
+            else if (atEnd()) setBottomFollow(true);
+          }}
+          onScroll={() => {
+            const el = scrollRef.current;
+            if (!el) return;
+            const scrollTop = el.scrollTop;
+            if (scrollTop < 80 && canLoadEarlier && !pageState?.loading && (hiddenCount > 0 || !pageState?.error)) {
+              loadingFullHistory.current = true;
+              void showEarlier();
+            }
+            const resume = shouldResumeBottomFollow({
+              following: followRef.current,
+              previousScrollTop: previousScrollTop.current,
+              scrollTop,
+              distanceFromBottom: el.scrollHeight - scrollTop - el.clientHeight,
+            });
+            previousScrollTop.current = scrollTop;
+            if (resume) setBottomFollow(true);
+          }}
+        >
+        <div
+          className="mx-auto flex max-w-[900px] flex-col gap-3 pb-14"
           role="log"
           aria-live="polite"
           aria-label={`Conversation with ${bot.name}`}
@@ -1308,23 +1308,24 @@ export function ChatView({ bot }: { bot: Bot }) {
             </div>
           )}
           {reasoning && bot.busy && <ThinkingStrip text={reasoning} active={!visibleStreaming} />}
-          {visibleStreaming ? (
-            <StreamingBubble text={visibleStreaming} since={lastUserMessage?.at ?? Date.now()} />
-          ) : (
-            showWorkingDots(bot.busy, visibleStreaming, messages.at(-1)) && (
-              <div className="flex justify-start">
-                <div className="flex items-center gap-2.5 rounded-2xl bg-raised px-4 py-3">
-                  <span className="flex items-center gap-1.5">
-                    <span className="size-1.5 animate-bounce rounded-full bg-ink-secondary [animation-delay:0ms]" />
-                    <span className="size-1.5 animate-bounce rounded-full bg-ink-secondary [animation-delay:150ms]" />
-                    <span className="size-1.5 animate-bounce rounded-full bg-ink-secondary [animation-delay:300ms]" />
-                  </span>
-                  <WorkingTimer since={lastUserMessage?.at ?? Date.now()} />
-                </div>
-              </div>
-            )
-          )}
+          {visibleStreaming && <StreamingBubble text={visibleStreaming} />}
         </div>
+        </div>
+        {showWorkingDots(bot.busy, visibleStreaming, messages.at(-1)) && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 px-5">
+            <div
+              className="mx-auto flex max-w-[900px] items-center gap-2.5 px-1 py-2"
+              role="status"
+            >
+              <span className="flex items-center gap-1.5" aria-hidden="true">
+                <span className="size-1.5 animate-bounce rounded-full bg-ink-secondary [animation-delay:0ms]" />
+                <span className="size-1.5 animate-bounce rounded-full bg-ink-secondary [animation-delay:150ms]" />
+                <span className="size-1.5 animate-bounce rounded-full bg-ink-secondary [animation-delay:300ms]" />
+              </span>
+              <WorkingTimer since={lastUserMessage?.at ?? Date.now()} />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Reading scrollback — one tap back to the end, streaming or not */}
