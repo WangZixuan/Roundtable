@@ -7,12 +7,12 @@ import {
 import { formatTime, useStore, type Bot as Agent, type Group } from "@/state/store";
 import { BotAvatar, STANDARD_BOT_AVATAR_SIZE } from "./Avatar";
 import { cn } from "@/lib/cn";
+import { matchesChatFilter, type ChatFilter } from "@/lib/chat-filter";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { BotPickerList } from "./BotPickerList";
 import { track } from "@/lib/analytics";
 
 type WorkspaceView = "chats" | "channels" | "tasks" | "agents";
-type ChatFilter = "all" | "channels" | "direct" | "unread";
 const CHAT_FILTERS = ["all", "channels", "direct", "unread"] satisfies readonly ChatFilter[];
 
 interface ChatRow {
@@ -258,7 +258,7 @@ export function WorkspaceNavigation({ open, onClose }: { open: boolean; onClose:
   ].sort((a, b) => b.at - a.at), [state.bots, state.groups]);
   const term = query.trim().toLowerCase();
   const visibleChats = chats.filter((chat) =>
-    (filter === "all" || filter === chat.kind || (filter === "unread" && chat.unread)) &&
+    matchesChatFilter(chat, filter) &&
     (!term || `${chat.title} ${chat.owner} ${chat.preview}`.toLowerCase().includes(term)),
   );
   const selectedGroup = state.groups.find((group) => group.id === state.selectedId);
