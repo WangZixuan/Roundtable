@@ -33,6 +33,7 @@ import { ChannelAvatar } from "./ChannelAvatar";
 import { cn } from "@/lib/cn";
 import { skillRecorderEnabled } from "@/lib/feature-flags";
 import { nextRename } from "@/lib/rename";
+import { setBotArchived } from "@/lib/bot-archive";
 import { downloadAllBots } from "@/lib/team-files";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { MIN_QUERY, SearchResults } from "./SearchResults";
@@ -76,6 +77,20 @@ interface MenuState {
   botId: string;
   x: number;
   y: number;
+}
+
+function useMenuFocus() {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const opener = document.activeElement;
+    ref.current?.querySelector<HTMLElement>("button:not(:disabled), input")?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && opener instanceof HTMLElement) opener.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  return ref;
 }
 
 function groupPreview(group: Group, bots: Bot[]): string {
@@ -164,7 +179,7 @@ function GroupListItem({
   );
 }
 
-function RoomContextMenu({
+export function RoomContextMenu({
   menu,
   onClose,
   onMoveToSection,
@@ -177,6 +192,7 @@ function RoomContextMenu({
   const group = state.groups.find((g) => g.id === menu.groupId);
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(group?.name ?? "");
+  const menuRef = useMenuFocus();
 
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
@@ -199,13 +215,14 @@ function RoomContextMenu({
     if (name) dispatch({ type: "patchGroup", groupId: group.id, patch: { name } });
     onClose();
   };
-  const top = Math.min(menu.y, window.innerHeight - 204);
-  const left = Math.min(menu.x, window.innerWidth - 240);
+  const top = Math.max(8, Math.min(menu.y, window.innerHeight - 204));
+  const left = Math.max(8, Math.min(menu.x, window.innerWidth - 240));
   return createPortal(
     <div
       data-room-menu
+      ref={menuRef}
       style={{ top, left }}
-      className="fixed z-40 w-[228px] overflow-hidden rounded-xl border border-hairline/50 bg-card py-1.5 shadow-2xl shadow-black/60"
+      className="fixed z-50 max-h-[calc(100dvh-16px)] w-[228px] overflow-y-auto rounded-xl border border-hairline/50 bg-card py-1.5 shadow-2xl shadow-black/60"
     >
       {renaming ? (
         <div className="flex items-center gap-1 px-2 py-1">
@@ -385,7 +402,7 @@ function SectionDivider({ name }: { name: string }) {
  * target's current one), a create field, and a remove action. Serves bots
  * and channels alike — the caller supplies the assignment. Mirrors the
  * context menu's fixed positioning + dismiss-on-outside-click contract. */
-function SectionPicker({
+export function SectionPicker({
   current,
   anchor,
   onClose,
@@ -401,6 +418,7 @@ function SectionPicker({
   const { state } = useStore();
   const [name, setName] = useState("");
   const trimmed = name.trim();
+  const menuRef = useMenuFocus();
 
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
@@ -432,13 +450,14 @@ function SectionPicker({
   };
 
   const top = Math.max(8, Math.min(anchor.y, window.innerHeight - 300));
-  const left = Math.min(anchor.x, window.innerWidth - 260);
+  const left = Math.max(8, Math.min(anchor.x, window.innerWidth - 260));
 
   return (
     <div
       data-section-picker
+      ref={menuRef}
       style={{ top, left }}
-      className="fixed z-40 w-[236px] overflow-hidden rounded-xl border border-hairline/50 bg-card py-2 shadow-2xl shadow-black/60"
+      className="fixed z-50 max-h-[calc(100dvh-16px)] w-[236px] overflow-y-auto rounded-xl border border-hairline/50 bg-card py-2 shadow-2xl shadow-black/60"
     >
       <div className="px-3.5 pb-1 text-[10px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
         Move to context
@@ -504,19 +523,27 @@ function SectionPicker({
   );
 }
 
-function BotContextMenu({
+export function BotContextMenu({
   menu,
   onClose,
   onArchive,
   onMoveToSection,
+  threadId,
+  archivePending = false,
 }: {
   menu: MenuState;
   onClose: () => void;
   onArchive: (bot: Bot) => void;
   onMoveToSection: (botId: string) => void;
+  threadId?: string;
+  archivePending?: boolean;
 }) {
   const { state, dispatch } = useStore();
   const bot = state.bots.find((b) => b.id === menu.botId);
+  const task = bot?.tasks?.find((candidate) => candidate.threadId === threadId);
+  const [renaming, setRenaming] = useState(false);
+  const [draft, setDraft] = useState(task?.title ?? "");
+  const menuRef = useMenuFocus();
 
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
@@ -533,13 +560,20 @@ function BotContextMenu({
     };
   }, [onClose]);
 
-  if (!bot) return null;
+  if (!bot || (threadId && !task)) return null;
   const visibleBotCount = state.bots.filter((candidate) => !candidate.hidden).length;
-  const archiveBlocked = visibleBotCount <= 1;
-  const archiveHint = archiveBlocked ? "Keep at least one active bot" : undefined;
+  const archiveBlocked = visibleBotCount <= 1 || archivePending;
+  const archiveHint = visibleBotCount <= 1 ? "Keep at least one active bot" : undefined;
   // keep the menu on-screen near the click
-  const top = Math.max(8, Math.min(menu.y, window.innerHeight - 380));
-  const left = Math.min(menu.x, window.innerWidth - 240);
+  const top = Math.max(8, Math.min(menu.y, window.innerHeight - (task ? 500 : 380)));
+  const left = Math.max(8, Math.min(menu.x, window.innerWidth - 240));
+  const saveRename = () => {
+    const title = draft.trim();
+    if (task && title && title !== task.title) {
+      dispatch({ type: "renameTask", botId: bot.id, threadId: task.threadId, title });
+    }
+    onClose();
+  };
 
   const item = (
     icon: React.ReactNode,
@@ -570,46 +604,72 @@ function BotContextMenu({
   return (
     <div
       data-bot-menu
+      ref={menuRef}
+      aria-label={task ? "Chat actions" : "Agent actions"}
       style={{ top, left }}
-      className="fixed z-40 w-[228px] overflow-hidden rounded-xl border border-hairline/50 bg-card py-1.5 shadow-2xl shadow-black/60"
+      className="fixed z-50 max-h-[calc(100dvh-16px)] w-[228px] overflow-y-auto rounded-xl border border-hairline/50 bg-card py-1.5 shadow-2xl shadow-black/60"
     >
+      {task && <>
+        {renaming ? (
+          <form onSubmit={(event) => { event.preventDefault(); saveRename(); }} className="flex items-center gap-1 px-2 py-1">
+            <input autoFocus aria-label="Chat name" value={draft}
+              onFocus={(event) => event.currentTarget.select()}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && event.nativeEvent.isComposing) event.preventDefault();
+              }}
+              className="min-w-0 flex-1 rounded-lg bg-raised px-2 py-1.5 text-[14px] text-ink focus:outline-none focus:ring-1 focus:ring-accent" />
+            <button type="submit" aria-label="Save chat name" className="rounded p-1 text-ink-secondary hover:text-ink"><Check size={16} /></button>
+          </form>
+        ) : (
+          <button type="button" onClick={() => setRenaming(true)} className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70">
+            <Pencil size={16} className="text-ink-secondary" />Rename chat
+          </button>
+        )}
+        {item(<Trash2 size={16} />, "Delete chat", () =>
+          dispatch({ type: "deleteTask", botId: bot.id, threadId: task.threadId }),
+        { danger: true, disabled: bot.busy && task.threadId === bot.threadId, hint: "Delete only this chat and its conversation" })}
+        {divider("chat")}
+      </>}
       {[
         item(
           bot.pinned ? <PinOff size={16} className="text-ink-secondary" /> : <Pin size={16} className="text-ink-secondary" />,
-          bot.pinned ? "Unpin" : "Pin",
+          task ? (bot.pinned ? "Unpin agent" : "Pin agent") : (bot.pinned ? "Unpin" : "Pin"),
           () => dispatch({ type: "updateBot", botId: bot.id, patch: { pinned: !bot.pinned } }),
         ),
-        item(<FolderPlus size={16} className="text-ink-secondary" />, "Move to section", () => {
+        item(<FolderPlus size={16} className="text-ink-secondary" />, task ? "Move agent to context" : "Move to section", () => {
           onClose();
           onMoveToSection(bot.id);
         }),
-        item(<BellDot size={16} className="text-ink-secondary" />, "Mark as Unread", () =>
+        item(<BellDot size={16} className="text-ink-secondary" />, task ? "Mark agent as unread" : "Mark as Unread", () =>
           dispatch({ type: "markUnread", botId: bot.id }),
+          { disabled: !bot.threadId, hint: !bot.threadId ? "This agent has no active chat" : undefined },
         ),
         divider("d1"),
         item(<Pencil size={16} className="text-ink-secondary" />, "Edit Profile", () => {
           dispatch({ type: "select", id: bot.id });
           dispatch({ type: "showAgents", botId: bot.id });
         }),
-        item(<Copy size={16} className="text-ink-secondary" />, "Duplicate", () =>
+        item(<Copy size={16} className="text-ink-secondary" />, task ? "Duplicate agent" : "Duplicate", () =>
           dispatch({ type: "duplicateBot", botId: bot.id }),
         ),
         divider("d2"),
         item(<ClipboardCopy size={16} className="text-ink-secondary" />, "Copy conversation ID", () => {
-          void navigator.clipboard?.writeText(bot.threadId);
+          void navigator.clipboard?.writeText(threadId ?? bot.threadId);
         }),
         divider("d3"),
         item(
           <Archive size={16} className="text-ink-secondary" />,
-          "Archive",
+          task ? "Archive agent" : "Archive",
           () => onArchive(bot),
           {
             disabled: archiveBlocked,
-            hint: archiveHint,
+            hint: archiveHint ?? (task ? "Archive this agent and all its chats" : undefined),
           },
         ),
-        item(<Trash2 size={16} />, "Delete", () => dispatch({ type: "deleteBot", botId: bot.id }), {
+        item(<Trash2 size={16} />, task ? "Delete agent" : "Delete", () => dispatch({ type: "deleteBot", botId: bot.id }), {
           danger: true,
+          hint: task ? "Delete this agent and all its chats" : undefined,
         }),
       ]}
     </div>
@@ -705,7 +765,7 @@ function BotListItem({
   );
 }
 
-function ArchivedBotsPanel({
+export function ArchivedBotsPanel({
   bots,
   onClose,
   onRestored,
@@ -842,6 +902,8 @@ function ArchivedBotsPanel({
 
 export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { state, dispatch } = useStore();
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const { capabilities } = useDesktopCapabilities();
   const importReturnRef = useRef<HTMLButtonElement>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
@@ -949,19 +1011,9 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   };
 
   const archiveBot = async (bot: Bot) => {
-    const activeBots = state.bots.filter((candidate) => !candidate.hidden);
-    if (activeBots.length <= 1) return;
     setTeamFeedback(null);
     try {
-      const response = await api(`/api/bots/${bot.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ hidden: true }),
-      });
-      dispatch({ type: "botPatched", bot: response.bot });
-      if (state.selectedId === bot.id) {
-        const next = activeBots.find((candidate) => candidate.id !== bot.id);
-        if (next) dispatch({ type: "select", id: next.id });
-      }
+      await setBotArchived(bot.id, true, () => stateRef.current, dispatch);
       setTeamFeedback({
         error: false,
         text: `${bot.name} archived`,
@@ -975,12 +1027,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   const undoBotArchive = async (bot: { id: string; name: string }) => {
     setTeamFeedback(null);
     try {
-      const response = await api(`/api/bots/${bot.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ hidden: false }),
-      });
-      dispatch({ type: "botPatched", bot: response.bot });
-      dispatch({ type: "select", id: bot.id });
+      await setBotArchived(bot.id, false, () => stateRef.current, dispatch);
       setTeamFeedback({ error: false, text: `${bot.name} restored` });
     } catch (cause) {
       setTeamFeedback({ error: true, text: cause instanceof Error ? cause.message : String(cause) });

@@ -273,7 +273,7 @@ export function titleFromMessage(text: string): string {
 
 export interface BotRecord {
   id: string;
-  /** the ACTIVE task's thread — everything that runs a turn reads this */
+  /** Active chat's thread; empty when the agent has no active chat. */
   threadId: ThreadId;
   /** every task this bot has, newest first */
   tasks?: TaskRecord[];
@@ -520,7 +520,7 @@ export class Store {
     // bots saved before tasks existed have one endless thread; adopt it as
     // their first task so nothing is lost and nothing special-cases it
     for (const b of this.bots) {
-      if (b.tasks?.length) continue;
+      if (b.tasks) continue;
       b.tasks = [
         {
           threadId: b.threadId,
@@ -534,7 +534,7 @@ export class Store {
     // at startup rather than waiting until the user happens to open it. Only
     // pending JSON files are touched; already-migrated threads stay lazy.
     const knownThreads = new Set([
-      ...this.bots.flatMap((b) => [b.threadId, ...(b.tasks ?? []).map((task) => task.threadId)]),
+      ...this.bots.flatMap((b) => (b.tasks ?? []).map((task) => task.threadId)),
       ...this.groups.map((group) => group.threadId),
     ]);
     for (const threadId of knownThreads) {
@@ -710,15 +710,18 @@ export class Store {
   }
 
   messagesFor(threadId: string): Message[] {
+    if (!threadId) return [];
     return this.thread(threadId).messages;
   }
 
   activeLeaf(threadId: string): string | null {
+    if (!threadId) return null;
     return this.thread(threadId).activeLeafId;
   }
 
   /** The visible conversation: root → activeLeafId. */
   activePath(threadId: string): Message[] {
+    if (!threadId) return [];
     const t = this.thread(threadId);
     const byId = new Map(t.messages.map((m) => [m.id, m]));
     const path: Message[] = [];
@@ -731,6 +734,7 @@ export class Store {
   }
 
   appendMessage(threadId: string, message: Omit<Message, "id" | "at"> & { at?: number }): Message {
+    if (!threadId) throw new Error("Create a chat before adding messages");
     const t = this.thread(threadId);
     const full: Message = { id: newId(), at: Date.now(), parentId: t.activeLeafId, ...redactBotAuthored(message) };
     t.messages.push(full);
@@ -837,7 +841,7 @@ export class Store {
   }
 
   botByThread(threadId: string) {
-    return this.bots.find((b) => b.threadId === threadId || b.tasks?.some((t) => t.threadId === threadId)) ?? null;
+    return this.bots.find((b) => b.tasks?.some((t) => t.threadId === threadId)) ?? null;
   }
 
   createBot(
@@ -888,7 +892,7 @@ export class Store {
     if (!bot) return false;
     this.bots = this.bots.filter((b) => b.id !== id);
     // every task's transcript goes with the bot, not just the open one
-    for (const threadId of new Set([bot.threadId, ...(bot.tasks ?? []).map((t) => t.threadId)])) {
+    for (const threadId of new Set((bot.tasks ?? []).map((t) => t.threadId))) {
       this.deleteThreadRecord(threadId);
     }
     // the bot's workspace (files + memory) goes with it — same rule as its
@@ -1033,6 +1037,11 @@ export class Store {
     return bot?.tasks?.find((t) => t.threadId === bot.threadId);
   }
 
+  /** Only explicit conversation entry points create a chat, never loading an agent. */
+  ensureActiveTask(botId: string): TaskRecord | null {
+    return this.activeTask(botId) ?? this.createTask(botId);
+  }
+
   taskByThread(botId: string, threadId: string): TaskRecord | undefined {
     return this.bot(botId)?.tasks?.find((t) => t.threadId === threadId);
   }
@@ -1103,16 +1112,20 @@ export class Store {
     this.emit({ type: "bot", botId });
   }
 
-  /** Delete a task and its transcript. A bot always keeps one. */
+  /** Delete a chat without deleting its agent. Empty threadId means no active chat. */
   deleteTask(botId: string, threadId: string): BotRecord | null {
     const bot = this.bot(botId);
-    if (!bot || !bot.tasks || bot.tasks.length < 2) return null;
+    if (!bot || !bot.tasks) return null;
     if (!bot.tasks.some((t) => t.threadId === threadId)) return null;
     bot.tasks = bot.tasks.filter((t) => t.threadId !== threadId);
     this.deleteThreadRecord(threadId);
     if (bot.threadId === threadId) {
-      bot.threadId = bot.tasks[0]!.threadId;
-      bot.resumeCursors = { ...bot.tasks[0]!.resumeCursors };
+      const next = bot.tasks[0];
+      bot.threadId = next?.threadId ?? "";
+      bot.resumeCursors = { ...next?.resumeCursors };
+      bot.unread = false;
+      delete bot.pinnedMessageId;
+      delete bot.rewound;
     }
     this.saveBots();
     this.emit({ type: "bot", botId });

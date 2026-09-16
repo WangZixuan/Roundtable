@@ -6,6 +6,7 @@ import { emailGateDone, initAnalytics } from "@/lib/analytics";
 import { unreadConversationCount } from "@/lib/unread";
 import { WorkspaceNavigation } from "@/components/WorkspaceNavigation";
 import { ChatView } from "@/components/ChatView";
+import { AgentChatEmptyState } from "@/components/AgentChatEmptyState";
 import { GroupView } from "@/components/GroupView";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { DesktopCapabilitiesProvider } from "@/components/DesktopCapabilities";
@@ -213,7 +214,9 @@ function Shell() {
       ) : group ? (
         <GroupView key={group.id} group={group} />
       ) : bot ? (
-        <ChatView bot={bot} />
+        bot.threadId ? <ChatView bot={bot} /> : <AgentChatEmptyState name={bot.name} onNewChat={() => {
+          dispatch({ type: "newTask", botId: bot.id });
+        }} />
       ) : (
         <main className="flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-chat-background text-ink-secondary">
           <Loader2 size={20} className="animate-spin" />
@@ -227,7 +230,7 @@ function Shell() {
           )}
         </main>
       )}
-      {state.inspectorOpen && bot && <Deferred><InspectorPanel bot={bot} /></Deferred>}
+      {state.inspectorOpen && bot?.threadId && <Deferred><InspectorPanel bot={bot} /></Deferred>}
       {state.appSettingsOpen && <Deferred><SettingsModal /></Deferred>}
       {/* mounted after the modals: same z-50 tier, so DOM order keeps the
           palette on top when one of them is open underneath */}

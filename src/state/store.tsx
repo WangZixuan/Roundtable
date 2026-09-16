@@ -282,6 +282,7 @@ export interface TaskUsage {
 
 export interface Bot {
   id: string;
+  /** Empty when this agent has no active chat. */
   threadId: string;
   /** every context this bot has, newest first */
   tasks?: Task[];
@@ -913,9 +914,12 @@ export function reducer(state: AppState, action: Action): AppState {
         // the new transcript, which must replace the previous task before the
         // webhook's streamed messages begin arriving.
         messages:
-          switchedThread && Array.isArray(action.bot.messages)
+          action.bot.threadId === ""
+            ? []
+            : switchedThread && Array.isArray(action.bot.messages)
             ? action.bot.messages
             : b.messages,
+        ...(action.bot.threadId === "" ? { lastMessage: undefined, activeLeafId: null } : {}),
       }));
     }
     case "messageAdded": {
@@ -1089,9 +1093,15 @@ export function reducer(state: AppState, action: Action): AppState {
     case "renameTask":
     case "deleteTask":
       return state;
-    case "taskSwitched":
+    case "taskSwitched": {
+      const updated = updateBot(state, action.bot.id, (bot) => ({
+        ...bot, ...action.bot, messages: action.bot.messages ?? [],
+        lastMessage: action.bot.threadId ? action.bot.lastMessage : undefined,
+        activeLeafId: action.bot.threadId ? action.bot.activeLeafId : null,
+      }));
+      if (!action.bot.threadId) return updated;
       return {
-        ...updateBot(state, action.bot.id, (bot) => ({ ...bot, ...action.bot, messages: action.bot.messages ?? [] })),
+        ...updated,
         messagePages: {
           ...state.messagePages,
           [action.bot.threadId]: {
@@ -1101,6 +1111,7 @@ export function reducer(state: AppState, action: Action): AppState {
           },
         },
       };
+    }
     case "newBot":
     case "duplicateBot":
     case "interrupt":
@@ -1505,7 +1516,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             api(`/api/groups/${action.id}`, { method: "PATCH", body: JSON.stringify({ unread: false }) }).catch(() => {});
           }
           const selected = bot ?? group;
-          if (selected && !stateRef.current.messagePages[selected.threadId]?.loaded) {
+          if (selected?.threadId && !stateRef.current.messagePages[selected.threadId]?.loaded) {
             void loadMessagePage(selected.threadId).catch(showError);
           }
           break;
@@ -1593,7 +1604,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             .then((r: any) => {
               if (!r?.bot) return;
               rawDispatch({ type: "taskSwitched", bot: r.bot });
-              rawDispatch({
+              if (r.bot.threadId) rawDispatch({
                 type: "messagePageMerged",
                 threadId: r.bot.threadId,
                 messages: r.bot.messages ?? [],
@@ -1634,7 +1645,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               safeGroups[0];
             let selectedHasMore = false;
             let selectedPageError: string | null = null;
-            if (selected) {
+            if (selected?.threadId) {
               try {
                 const page = await api(`/api/threads/${selected.threadId}/messages?limit=10`);
                 selected.messages = Array.isArray(page.messages) ? page.messages : [];
@@ -1645,7 +1656,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             }
             if (alive) {
               rawDispatch({ type: "hydrate", bots, groups: safeGroups });
-              if (selected && !selectedPageError) {
+              if (selected?.threadId && !selectedPageError) {
                 rawDispatch({
                   type: "messagePageMerged",
                   threadId: selected.threadId,
@@ -1766,7 +1777,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             type: "botPatched",
             bot: { ...bot, ...botPatchQueue.overlayFor(bot.id) },
           });
-          if (Array.isArray(bot.messages)) {
+          if (bot.threadId && Array.isArray(bot.messages)) {
             rawDispatch({
               type: "messagePageMerged",
               threadId: bot.threadId,
