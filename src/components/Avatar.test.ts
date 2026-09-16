@@ -2,38 +2,38 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { MAUS_COLORS, MAUS_COLOR_NAMES } from "@/lib/mascot";
-import { BotAvatar, MausAvatar } from "./Avatar";
-import { CursorAvatar, DEFAULT_SILHOUETTE } from "./CursorAvatar";
+import { AGENT_COLORS, AGENT_COLOR_NAMES } from "../../shared/agent-avatar";
+import { BotAvatar } from "./Avatar";
+import { RobotAvatar } from "./RobotAvatar";
 
 describe("default robot avatars", () => {
-  it.each(MAUS_COLOR_NAMES)("uses the robot with the saved %s color", (color) => {
+  it.each(AGENT_COLOR_NAMES)("uses the robot with the saved %s color", (color) => {
     const html = renderToStaticMarkup(createElement(BotAvatar, {
       bot: { name: "Existing bot", color },
       size: 36,
       animated: false,
     }));
-    expect(html).toContain(DEFAULT_SILHOUETTE.clip);
-    expect(html).toContain(`stop-color="${MAUS_COLORS[color]}"`);
+    expect(html).toContain(`stop-color="${AGENT_COLORS[color]}"`);
     expect(html).toContain('fill="#142539"');
     expect(html).toContain('aria-label="Existing bot"');
-    expect(html).toContain('width="36px"');
+    expect(html).toContain('width="36"');
     expect(html).not.toContain("{{");
     expect(html).not.toContain("<img");
   });
 
-  it("uses the same robot in expression and color previews", () => {
-    const html = renderToStaticMarkup(createElement(MausAvatar, {
+  it("renders the eyes and smile without running effects", () => {
+    const html = renderToStaticMarkup(createElement(RobotAvatar, {
       color: "purple",
-      state: "happy",
-      animated: false,
     }));
-    expect(html).toContain(DEFAULT_SILHOUETTE.clip);
+    expect(html).toContain('x="86" y="107" width="14" height="23"');
+    expect(html).toContain('x="128" y="107" width="14" height="23"');
+    expect(html).toContain('d="M103 143Q114 153 125 143"');
+    expect(html).not.toContain("<animate");
   });
 
   it("gives an unnamed standalone robot an accessible label", () => {
-    const html = renderToStaticMarkup(createElement(CursorAvatar, { paused: true }));
-    expect(html).toContain('aria-label="roundtable robot mascot"');
+    const html = renderToStaticMarkup(createElement(RobotAvatar, { color: "green" }));
+    expect(html).toContain('aria-label="Robot avatar"');
   });
 
   it("keeps a chosen custom image", () => {
@@ -58,7 +58,7 @@ describe("default robot avatars", () => {
         avatarCrop: "initials",
       },
     }));
-    expect(html).toContain(DEFAULT_SILHOUETTE.clip);
+    expect(html).toContain('fill="#142539"');
     expect(html).not.toContain("<img");
   });
 
@@ -70,5 +70,28 @@ describe("default robot avatars", () => {
       }));
       expect(html).toContain("profile-avatar");
     }
+  });
+
+  it("ignores legacy animation and motion props", () => {
+    const bot = { name: "Static bot", color: "green" } as const;
+    const resting = renderToStaticMarkup(createElement(BotAvatar, { bot }));
+    const working = renderToStaticMarkup(createElement(BotAvatar, {
+      bot,
+      state: "working",
+      animated: true,
+      trackPointer: true,
+      motion: "celebrate",
+      motionKey: 3,
+    }));
+    expect(working).toBe(resting);
+  });
+
+  it("keeps gradient references unique when robots share a page", () => {
+    const html = renderToStaticMarkup(createElement("div", null,
+      ...AGENT_COLOR_NAMES.map((color) => createElement(RobotAvatar, { color, key: color })),
+    ));
+    const ids = [...html.matchAll(/<linearGradient id="([^"]+)"/g)].map((match) => match[1]);
+    expect(new Set(ids).size).toBe(AGENT_COLOR_NAMES.length);
+    for (const id of ids) expect(html).toContain(`url(#${id})`);
   });
 });

@@ -109,7 +109,7 @@ export function BotProfileAvatarCard({
               aria-pressed={bot.color === color}
               onClick={() => onPatch({ color })}
               className={cn(
-                "flex size-10 items-center justify-center rounded-full border-2 border-transparent text-[11px] font-semibold transition-transform hover:scale-110",
+                "flex size-10 items-center justify-center rounded-full border-2 border-transparent text-[11px] font-semibold",
                 bot.color === color && "ring-2 ring-accent-border ring-offset-2 ring-offset-card",
               )}
               style={{ borderColor: bot.color === color ? AGENT_COLORS[color] : undefined }}

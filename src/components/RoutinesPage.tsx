@@ -18,7 +18,7 @@ import {
   X,
 } from "lucide-react";
 
-import { BotAvatar, type BotAvatarProps } from "@/components/Avatar";
+import { BotAvatar } from "@/components/Avatar";
 import { cn } from "@/lib/cn";
 import { AGENT_COLORS } from "../../shared/agent-avatar";
 import type { Routine, RoutineInput, RoutineRun, RoutineRunOn, RoutineRunStatus } from "@/lib/routines";
@@ -97,7 +97,7 @@ function canToggleRoutine(routine: Routine) {
   return routine.schedule.type === "daily" || routine.schedule.at > Date.now();
 }
 
-function statusState(status: RoutineRunStatus): NonNullable<BotAvatarProps["state"]> {
+function statusState(status: RoutineRunStatus): string {
   switch (status) {
     case "queued":
       return "drowsy";
