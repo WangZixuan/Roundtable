@@ -4,10 +4,13 @@
 
 Bots without a custom image use the original SVG robot artwork in
 `src/components/CursorAvatar.tsx`. The shared avatar renderer applies each bot's
-color, expression, and animation in lists, chats, profile previews, and composite
-channel avatars. No download, generated attachment, or profile migration is
-needed. Uploaded images remain unchanged; choosing the mascot or removing the
-custom image restores the robot.
+color, expression, and animation in lists, chats, and profile previews. Composite
+channel avatars show static robots in channel headers and the Channels navigation;
+the redesigned Chats list keeps main's text-only rows. No download, generated
+attachment, or profile migration is needed. Uploaded images remain unchanged;
+resetting or removing the custom image restores the robot. The persisted
+`avatarCrop: "initials"` value is retained for compatibility with main and selects
+the built-in robot in this UI.
 
 ## Custom images
 

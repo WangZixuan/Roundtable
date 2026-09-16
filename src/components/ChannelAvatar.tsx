@@ -1,9 +1,8 @@
 import { Users } from "lucide-react";
 import { BotAvatar, type BotAvatarProps } from "./Avatar";
-import { normalizeState } from "@/lib/mascot";
 import type { Bot } from "@/state/store";
 
-type ChannelMember = BotAvatarProps["bot"] & Pick<Bot, "id" | "mascotExpression">;
+type ChannelMember = BotAvatarProps["bot"] & Pick<Bot, "id">;
 
 export function ChannelAvatar({
   members,
@@ -45,7 +44,7 @@ export function ChannelAvatar({
           <BotAvatar
             bot={member}
             size={shown.length === 3 && index > 0 ? size / 2 : size}
-            state={normalizeState(member.mascotExpression) ?? "happy"}
+            state="happy"
             imageShape="square"
             animated={false}
             trackPointer={false}

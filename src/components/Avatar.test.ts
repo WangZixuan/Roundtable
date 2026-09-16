@@ -50,15 +50,25 @@ describe("default robot avatars", () => {
     expect(html).not.toContain("<svg");
   });
 
-  it("shows the robot when the mascot is selected over a saved image", () => {
+  it("shows the robot for main's persisted default even with a saved image", () => {
     const html = renderToStaticMarkup(createElement(BotAvatar, {
       bot: {
         color: "green",
         avatarUrl: "/api/attachments/custom.png",
-        avatarCrop: "mascot",
+        avatarCrop: "initials",
       },
     }));
     expect(html).toContain(DEFAULT_SILHOUETTE.clip);
     expect(html).not.toContain("<img");
+  });
+
+  it("preserves the upstream className API for custom images and defaults", () => {
+    for (const avatarUrl of [undefined, "/api/attachments/custom.png"]) {
+      const html = renderToStaticMarkup(createElement(BotAvatar, {
+        bot: { name: "Styled bot", color: "blue", avatarUrl, avatarCrop: "circle" },
+        className: "profile-avatar",
+      }));
+      expect(html).toContain("profile-avatar");
+    }
   });
 });

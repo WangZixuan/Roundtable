@@ -4,7 +4,7 @@ import { StoreProvider, useStore } from "@/state/store";
 import { Onboarding } from "@/components/Onboarding";
 import { emailGateDone, initAnalytics } from "@/lib/analytics";
 import { unreadConversationCount } from "@/lib/unread";
-import { Sidebar } from "@/components/Sidebar";
+import { WorkspaceNavigation } from "@/components/WorkspaceNavigation";
 import { ChatView } from "@/components/ChatView";
 import { GroupView } from "@/components/GroupView";
 import { UpdateBanner } from "@/components/UpdateBanner";
@@ -13,8 +13,11 @@ import { NoEngines } from "@/components/NoEngines";
 import { CommandPalette } from "@/components/CommandPalette";
 import { setTitleBarSurface } from "@/lib/skins";
 
-const SettingsPanel = lazy(() =>
-  import("@/components/SettingsPanel").then((module) => ({ default: module.SettingsPanel })),
+const AgentProfilePage = lazy(() =>
+  import("@/components/SettingsPanel").then((module) => ({ default: module.AgentProfilePage })),
+);
+const NewAgentPage = lazy(() =>
+  import("@/components/SettingsPanel").then((module) => ({ default: module.NewAgentPage })),
 );
 const InspectorPanel = lazy(() =>
   import("@/components/InspectorPanel").then((module) => ({ default: module.InspectorPanel })),
@@ -110,7 +113,7 @@ function Shell() {
     !state.instances.some((instance) => instance.refreshing) &&
     !state.instances.some((i) => i.snapshot.state === "available");
 
-  // App-wide shortcuts: ⌘N new bot · ⌘1–9 jump to bot · ⌘⇧[ / ⌘⇧] prev/next.
+  // App-wide shortcuts: ⌘N new Agent · ⌘1–9 jump to Agent · ⌘⇧[ / ⌘⇧] prev/next.
   // Kept deliberately small; every panel already closes on Esc.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -119,7 +122,7 @@ function Shell() {
       const bots = state.bots.filter((b) => !b.hidden);
       if (e.key === "n" && !e.shiftKey) {
         e.preventDefault();
-        dispatch({ type: "newBot" });
+        dispatch({ type: "startAgentCreate" });
       } else if (/^[1-9]$/.test(e.key)) {
         const target = bots[Number(e.key) - 1];
         if (target) {
@@ -146,23 +149,21 @@ function Shell() {
   // Picking a conversation closes the drawer: on a phone the chat is what you
   // asked for, and leaving the list up would hide it. Watching activeView too
   // catches re-selecting the bot that is already current from another view —
-  // the reducer switches the view without changing selectedId. settingsOpen
-  // covers the same idea from a different trigger: close the drawer whenever
-  // an action opens something over the chat.
+  // the reducer switches the view without changing selectedId.
   useEffect(() => {
     setDrawerOpen(false);
-  }, [state.selectedId, state.activeView, state.settingsOpen]);
+  }, [state.selectedId, state.activeView]);
 
   useLayoutEffect(() => {
     const backdropOpacity = state.appSettingsOpen ? 0.5 : 0;
-    if (state.settingsOpen || state.inspectorOpen) {
+    if (state.inspectorOpen) {
       setTitleBarSurface("panel", backdropOpacity);
-    } else if (state.activeView === "team-map" || state.activeView === "routines" || state.activeView === "skill-recorder" || noEngines) {
+    } else if (state.activeView === "agents" || state.activeView === "team-map" || state.activeView === "routines" || state.activeView === "skill-recorder" || noEngines) {
       setTitleBarSurface("app", backdropOpacity);
     } else {
       setTitleBarSurface("chat", backdropOpacity);
     }
-  }, [state.activeView, state.appSettingsOpen, state.inspectorOpen, state.settingsOpen, noEngines]);
+  }, [state.activeView, state.appSettingsOpen, state.inspectorOpen, noEngines]);
 
   return (
     <div className="flex h-full flex-col">
@@ -186,14 +187,22 @@ function Shell() {
           className="absolute inset-0 z-30 bg-black/50 md:hidden"
         />
       )}
-      <Sidebar
+      <WorkspaceNavigation
         open={drawerOpen}
         onClose={() => {
           setDrawerOpen(false);
           menuButtonRef.current?.focus();
         }}
       />
-      {state.activeView === "team-map" ? (
+      {state.activeView === "agents" ? (
+        state.agentCreateOpen ? (
+          <Deferred><NewAgentPage /></Deferred>
+        ) : bot ? (
+          <Deferred><AgentProfilePage bot={bot} /></Deferred>
+        ) : (
+          <main className="flex min-w-0 flex-1 items-center justify-center bg-app text-[13px] text-ink-secondary">Create an Agent to get started.</main>
+        )
+      ) : state.activeView === "team-map" ? (
         <Deferred><TeamMapPage /></Deferred>
       ) : state.activeView === "routines" ? (
         <Deferred><RoutinesPage /></Deferred>
@@ -218,7 +227,6 @@ function Shell() {
           )}
         </main>
       )}
-      {state.settingsOpen && bot && <Deferred><SettingsPanel bot={bot} /></Deferred>}
       {state.inspectorOpen && bot && <Deferred><InspectorPanel bot={bot} /></Deferred>}
       {state.appSettingsOpen && <Deferred><SettingsModal /></Deferred>}
       {/* mounted after the modals: same z-50 tier, so DOM order keeps the

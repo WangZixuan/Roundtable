@@ -33,8 +33,7 @@ import {
   type Message,
 } from "@/state/store";
 import { EngineSetup } from "./EngineSetup";
-import { BotAvatar, MausAvatar, STANDARD_BOT_AVATAR_SIZE } from "./Avatar";
-import { stateForBot } from "@/lib/mascot";
+import { AgentInitialsAvatar, BotAvatar, STANDARD_BOT_AVATAR_SIZE } from "./Avatar";
 import { hasVisibleStreamingText, showWorkingDots } from "@/lib/turn-tail";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { OptionCard, shouldHideOnboardingCard } from "./OptionCard";
@@ -47,7 +46,6 @@ import { ConnectorCard } from "./ConnectorCard";
 import { SecretRequestCard } from "./SecretRequestCard";
 import { AttachedImageGallery } from "./AttachmentPreview";
 import { RenameTitle } from "./RenameTitle";
-import { TaskPicker } from "./TaskPicker";
 import { CallOverlay } from "./CallView";
 import { BotDelivery } from "./BotDelivery";
 import { cn } from "@/lib/cn";
@@ -302,7 +300,7 @@ function Bubble({
   };
 
   return (
-    <div className={cn("group animate-msg-in flex w-full flex-col", user ? "items-end" : "items-start")}>
+    <div className={cn("group flex w-full flex-col", user ? "animate-msg-in items-end" : "items-start")}>
       <div className={cn("flex w-full items-center gap-1.5", user ? "justify-end" : "flex-wrap justify-start")}>
         {user && <CopyButton text={visibleText} />}
         {!user && showToolbar && (
@@ -470,7 +468,7 @@ function ActivityChip({ message }: { message: Message }) {
           title={`Open the conversation with ${comm.withName}`}
           className="flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
         >
-          <MausAvatar color={comm.withColor} state="happy" size={16} />
+          <AgentInitialsAvatar name={comm.withName} color={comm.withColor} size={16} />
           <span className="max-w-[480px] truncate">{tool.name}</span>
           <ChevronRight size={13} />
         </button>
@@ -641,7 +639,7 @@ function ScreenFrame({ png, mime }: { png: string; mime?: string }) {
   );
 }
 
-function StreamingBubble({ text, since }: { text: string; since: number }) {
+function StreamingBubble({ text }: { text: string }) {
   // markdown re-parses on a deferred value: when tokens arrive faster than
   // the parser keeps up, React lags the parse instead of janking the frame
   const deferred = useDeferredValue(text);
@@ -655,24 +653,15 @@ function StreamingBubble({ text, since }: { text: string; since: number }) {
     setHasRenderedContent(Boolean(visibleText || visibleElement));
   }, [deferred]);
   return (
-    <div className="flex w-full justify-start">
+    <div className={hasRenderedContent ? "flex w-full justify-start" : "hidden"}>
       <div className="w-full min-w-0 px-1 py-1.5 text-[15px] leading-relaxed text-ink">
         <div ref={contentRef}>
           <MessageBoundary fallbackText={deferred}>
             <ChatMarkdown text={deferred} streaming />
           </MessageBoundary>
         </div>
-        {hasRenderedContent ? (
+        {hasRenderedContent && (
           <span className="animate-caret ml-0.5 inline-block h-[14px] w-[2px] bg-ink align-middle" />
-        ) : (
-          <div className="flex items-center gap-2.5 rounded-2xl bg-raised px-4 py-3">
-            <span className="flex items-center gap-1.5">
-              <span className="size-1.5 animate-bounce rounded-full bg-ink-secondary [animation-delay:0ms]" />
-              <span className="size-1.5 animate-bounce rounded-full bg-ink-secondary [animation-delay:150ms]" />
-              <span className="size-1.5 animate-bounce rounded-full bg-ink-secondary [animation-delay:300ms]" />
-            </span>
-            <WorkingTimer since={since} />
-          </div>
         )}
       </div>
     </div>
@@ -807,6 +796,10 @@ const MessagesList = memo(function MessagesList({
         </div>
       )}
       {rows.map((entry) => {
+        const firstEntry = entry.kind === "turn" ? entry.rows[0] : entry;
+        const firstMessageId = firstEntry.kind === "message"
+          ? firstEntry.message.id
+          : firstEntry.messages[0].id;
         const lastEntry = entry.kind === "turn" ? entry.rows.at(-1)! : entry;
         const m = lastEntry.kind === "message" ? lastEntry.message : lastEntry.messages.at(-1)!;
         const row = (() => {
@@ -847,7 +840,11 @@ const MessagesList = memo(function MessagesList({
         previousRenderedAt = m.at;
         return (
           <div
-            key={entry.kind === "command-run" ? `run:${entry.turnId}` : m.id}
+            key={entry.kind === "turn"
+              ? `turn:${entry.turnId}:${firstMessageId}`
+              : entry.kind === "command-run"
+                ? `run:${entry.turnId}`
+                : m.id}
             className="contents"
             data-mid={entry.kind === "message" ? m.id : undefined}
           >
@@ -917,7 +914,6 @@ export function ChatView({ bot }: { bot: Bot }) {
   const visibleStreaming = hasVisibleStreamingText(streaming) ? streaming : undefined;
   const reasoning = stream.reasoning[bot.threadId];
   const provisioning = state.provisioning[bot.id];
-  const mascotMotion = state.mascotMotion?.botId === bot.id ? state.mascotMotion : null;
   const [findOpen, setFindOpen] = useState(false);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   useEffect(() => setFindOpen(false), [bot.threadId]);
@@ -1155,7 +1151,7 @@ export function ChatView({ bot }: { bot: Bot }) {
       >
         <div className={cn("flex min-w-0 items-center gap-2.5 rounded-lg pr-1.5", !macInset && "py-1")}>
           <button
-            onClick={() => dispatch({ type: "toggleSettings", open: true })}
+            onClick={() => dispatch({ type: "showAgents", botId: bot.id })}
             className="-ml-1.5 flex size-9 shrink-0 items-center justify-center rounded-lg hover:bg-raised"
             style={noDrag}
             title="Open agent profile"
@@ -1163,11 +1159,7 @@ export function ChatView({ bot }: { bot: Bot }) {
           >
             <BotAvatar
               bot={bot}
-              state={stateForBot({ ...bot, messages })}
               size={STANDARD_BOT_AVATAR_SIZE}
-              motion={mascotMotion?.kind ?? "none"}
-              motionKey={mascotMotion?.nonce ?? 0}
-              animated={false}
             />
           </button>
           <span className="min-w-0 truncate select-none text-[15px] font-semibold text-ink">{bot.name}</span>
@@ -1186,8 +1178,7 @@ export function ChatView({ bot }: { bot: Bot }) {
           >
             <Search size={18} />
           </button>
-          <TaskPicker bot={bot} compact={macInset} />
-          <ProfileButton compact={macInset} />
+          <ProfileButton botId={bot.id} compact={macInset} />
           <InspectorButton compact={macInset} open={state.inspectorOpen} onClick={() => dispatch({ type: "toggleInspector" })} />
           <UsageChip bot={bot} compact={macInset} />
         </div>
@@ -1218,39 +1209,40 @@ export function ChatView({ bot }: { bot: Bot }) {
       />
 
       {/* Messages */}
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto px-5 [overflow-anchor:none]"
-        onWheel={(e) => {
-          if (e.deltaY < 0 && e.currentTarget.scrollHeight > e.currentTarget.clientHeight) setBottomFollow(false);
-          else if (atEnd()) setBottomFollow(true);
-        }}
-        onTouchStart={(e) => (touchY.current = e.touches[0]?.clientY ?? 0)}
-        onTouchMove={(e) => {
-          const y = e.touches[0]?.clientY ?? 0;
-          if (y > touchY.current + 4) setBottomFollow(false);
-          else if (atEnd()) setBottomFollow(true);
-        }}
-        onScroll={() => {
-          const el = scrollRef.current;
-          if (!el) return;
-          const scrollTop = el.scrollTop;
-          if (scrollTop < 80 && canLoadEarlier && !pageState?.loading && (hiddenCount > 0 || !pageState?.error)) {
-            loadingFullHistory.current = true;
-            void showEarlier();
-          }
-          const resume = shouldResumeBottomFollow({
-            following: followRef.current,
-            previousScrollTop: previousScrollTop.current,
-            scrollTop,
-            distanceFromBottom: el.scrollHeight - scrollTop - el.clientHeight,
-          });
-          previousScrollTop.current = scrollTop;
-          if (resume) setBottomFollow(true);
-        }}
-      >
+      <div className="relative min-h-0 flex-1">
         <div
-          className="mx-auto flex max-w-[900px] flex-col gap-3 pb-4"
+          ref={scrollRef}
+          className="h-full overflow-y-auto px-5 [overflow-anchor:none]"
+          onWheel={(e) => {
+            if (e.deltaY < 0 && e.currentTarget.scrollHeight > e.currentTarget.clientHeight) setBottomFollow(false);
+            else if (atEnd()) setBottomFollow(true);
+          }}
+          onTouchStart={(e) => (touchY.current = e.touches[0]?.clientY ?? 0)}
+          onTouchMove={(e) => {
+            const y = e.touches[0]?.clientY ?? 0;
+            if (y > touchY.current + 4) setBottomFollow(false);
+            else if (atEnd()) setBottomFollow(true);
+          }}
+          onScroll={() => {
+            const el = scrollRef.current;
+            if (!el) return;
+            const scrollTop = el.scrollTop;
+            if (scrollTop < 80 && canLoadEarlier && !pageState?.loading && (hiddenCount > 0 || !pageState?.error)) {
+              loadingFullHistory.current = true;
+              void showEarlier();
+            }
+            const resume = shouldResumeBottomFollow({
+              following: followRef.current,
+              previousScrollTop: previousScrollTop.current,
+              scrollTop,
+              distanceFromBottom: el.scrollHeight - scrollTop - el.clientHeight,
+            });
+            previousScrollTop.current = scrollTop;
+            if (resume) setBottomFollow(true);
+          }}
+        >
+        <div
+          className="mx-auto flex max-w-[900px] flex-col gap-3 pb-14"
           role="log"
           aria-live="polite"
           aria-label={`Conversation with ${bot.name}`}
@@ -1308,23 +1300,24 @@ export function ChatView({ bot }: { bot: Bot }) {
             </div>
           )}
           {reasoning && bot.busy && <ThinkingStrip text={reasoning} active={!visibleStreaming} />}
-          {visibleStreaming ? (
-            <StreamingBubble text={visibleStreaming} since={lastUserMessage?.at ?? Date.now()} />
-          ) : (
-            showWorkingDots(bot.busy, visibleStreaming, messages.at(-1)) && (
-              <div className="flex justify-start">
-                <div className="flex items-center gap-2.5 rounded-2xl bg-raised px-4 py-3">
-                  <span className="flex items-center gap-1.5">
-                    <span className="size-1.5 animate-bounce rounded-full bg-ink-secondary [animation-delay:0ms]" />
-                    <span className="size-1.5 animate-bounce rounded-full bg-ink-secondary [animation-delay:150ms]" />
-                    <span className="size-1.5 animate-bounce rounded-full bg-ink-secondary [animation-delay:300ms]" />
-                  </span>
-                  <WorkingTimer since={lastUserMessage?.at ?? Date.now()} />
-                </div>
-              </div>
-            )
-          )}
+          {visibleStreaming && <StreamingBubble text={visibleStreaming} />}
         </div>
+        </div>
+        {showWorkingDots(bot.busy, visibleStreaming, messages.at(-1)) && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 px-5">
+            <div
+              className="mx-auto flex max-w-[900px] items-center gap-2.5 px-1 py-2"
+              role="status"
+            >
+              <span className="flex items-center gap-1.5" aria-hidden="true">
+                <span className="size-1.5 animate-bounce rounded-full bg-ink-secondary [animation-delay:0ms]" />
+                <span className="size-1.5 animate-bounce rounded-full bg-ink-secondary [animation-delay:150ms]" />
+                <span className="size-1.5 animate-bounce rounded-full bg-ink-secondary [animation-delay:300ms]" />
+              </span>
+              <WorkingTimer since={lastUserMessage?.at ?? Date.now()} />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Reading scrollback — one tap back to the end, streaming or not */}
@@ -1374,7 +1367,7 @@ function UsageChip({ bot, compact = false }: { bot: Bot; compact?: boolean }) {
   const short = usage.costUsd !== null ? formatUsd(usage.costUsd) : formatTokens(usage.input + usage.output);
   return (
     <button
-      onClick={() => dispatch({ type: "toggleSettings", open: true })}
+      onClick={() => dispatch({ type: "showAgents", botId: bot.id })}
       className={cn(
         "whitespace-nowrap rounded-md px-3 text-[12px] tabular-nums text-ink-secondary hover:bg-raised hover:text-ink @max-4xl/chathead:px-2",
         compact ? "h-8" : "h-10",
@@ -1387,11 +1380,11 @@ function UsageChip({ bot, compact = false }: { bot: Bot; compact?: boolean }) {
   );
 }
 
-function ProfileButton({ compact = false }: { compact?: boolean }) {
+function ProfileButton({ botId, compact = false }: { botId: string; compact?: boolean }) {
   const { dispatch } = useStore();
   return (
     <button
-      onClick={() => dispatch({ type: "toggleSettings", open: true })}
+      onClick={() => dispatch({ type: "showAgents", botId })}
       aria-label="Open agent profile"
       className={cn(
         "flex items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink",

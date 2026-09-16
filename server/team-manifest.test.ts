@@ -16,7 +16,6 @@ describe("team manifests", () => {
           title: "Lead",
           description: "Coordinates the work",
           color: "purple",
-          mascotExpression: "focused",
         },
         {
           id: "bot-b",
@@ -203,7 +202,7 @@ describe("team manifests", () => {
       name: "Mira",
       title: "Lead",
       description: "Coordinates",
-      appearance: { color: "purple" as const, mascotExpression: "focused" },
+      appearance: { color: "purple" as const },
     };
     const taken = new Set(["mira"]);
     // toEqual: the profile is exactly the persona — no privileged field can
@@ -213,7 +212,6 @@ describe("team manifests", () => {
       title: "Lead",
       description: "Coordinates",
       color: "purple",
-      mascotExpression: "focused",
     });
     // the claimed name counts as taken now, case-insensitively, so the next
     // member of the same batch numbers forward instead of colliding

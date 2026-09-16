@@ -13,9 +13,8 @@ import {
   type Group,
   type Message,
 } from "@/state/store";
-import { BotAvatar, CoordinatorAvatar, MausAvatar } from "./Avatar";
+import { AgentInitialsAvatar, BotAvatar, CoordinatorAvatar } from "./Avatar";
 import { ChannelAvatar } from "./ChannelAvatar";
-import { normalizeState } from "@/lib/mascot";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { Composer } from "./Composer";
 import { ChatFindBar } from "./ChatFindBar";
@@ -60,8 +59,8 @@ function isCoordinatorMessage(message: Message | undefined): boolean {
   return message?.author === "coordinator" || Boolean(message?.executionReport);
 }
 
-/** 32px maus + name, shown once per sender cluster. */
-function ClusterLabel({ bot, name, color, coordinator = false }: { bot?: Bot; name: string; color: string; coordinator?: boolean }) {
+/** 32px avatar + name, shown once per sender cluster. */
+function ClusterLabel({ bot, name, color, coordinator = false }: { bot?: Bot; name: string; color: Bot["color"]; coordinator?: boolean }) {
   const { state } = useStore();
   const coordinatorSettings = state.config?.coordinator;
   return (
@@ -69,22 +68,12 @@ function ClusterLabel({ bot, name, color, coordinator = false }: { bot?: Bot; na
       {coordinator ? (
         <CoordinatorAvatar avatarUrl={coordinatorSettings?.avatarUrl} avatarCrop={coordinatorSettings?.avatarCrop} size={32} />
       ) : bot ? (
-        <BotAvatar
-          bot={bot}
-          state={normalizeState(bot.mascotExpression) ?? "happy"}
-          size={32}
-          motion="none"
-          motionKey={0}
-          animated={false}
-        />
+        <BotAvatar bot={bot} size={32} />
       ) : (
-        <MausAvatar
-          color={color as Bot["color"]}
-          state="happy"
+        <AgentInitialsAvatar
+          name={name}
+          color={color}
           size={32}
-          motion="none"
-          motionKey={0}
-          animated={false}
         />
       )}
       <span className="text-[11px] font-medium text-ink-secondary">{coordinator ? "Coordinator" : name}</span>
@@ -252,11 +241,24 @@ const Transcript = memo(function Transcript({
 
 function StreamingBubble({ text }: { text: string }) {
   const deferred = useDeferredValue(text);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [hasRenderedContent, setHasRenderedContent] = useState(false);
+  useLayoutEffect(() => {
+    const content = contentRef.current;
+    if (!content) return;
+    const visibleText = content.textContent?.replace(/[\u200b-\u200f\u2060\ufeff]/g, "").trim();
+    const visibleElement = content.querySelector("img,svg,pre,table,hr,video,audio");
+    setHasRenderedContent(Boolean(visibleText || visibleElement));
+  }, [deferred]);
   return (
-    <div className="flex w-full justify-start">
+    <div className={hasRenderedContent ? "flex w-full justify-start" : "hidden"}>
       <div className="w-full min-w-0 rounded-2xl bg-card px-4 py-2.5 text-[15px] leading-relaxed text-ink">
-        <ChatMarkdown text={deferred} streaming />
-        <span className="animate-caret ml-0.5 inline-block h-[14px] w-[2px] bg-ink align-middle" />
+        <div ref={contentRef}>
+          <ChatMarkdown text={deferred} streaming />
+        </div>
+        {hasRenderedContent && (
+          <span className="animate-caret ml-0.5 inline-block h-[14px] w-[2px] bg-ink align-middle" />
+        )}
       </div>
     </div>
   );

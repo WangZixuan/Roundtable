@@ -22,6 +22,7 @@ import {
   type CursorAvatarHandle,
 } from "./CursorAvatar";
 import { botAvatarProfile, type BotAvatarCrop, type CoordinatorAvatarCrop } from "../../shared/bot-avatar";
+import { agentAvatarForeground, agentInitials } from "../../shared/agent-avatar";
 
 /** Shared size for a bot avatar in expanded navigation and chat headers. */
 export const STANDARD_BOT_AVATAR_SIZE = 36;
@@ -227,11 +228,14 @@ export const MausAvatar = memo(forwardRef(MausAvatarComponent));
 export type BotAvatarProps = Omit<MausAvatarProps, "color"> & {
   /** Composite channel avatars clip each image within their own tile. */
   imageShape?: "circle" | "square";
+  className?: string;
   bot: {
     name?: string;
     color: MausColor;
     avatarUrl?: string | null;
     avatarCrop?: BotAvatarCrop;
+    busy?: boolean;
+    unread?: boolean;
   };
 };
 
@@ -240,20 +244,24 @@ export type BotAvatarProps = Omit<MausAvatarProps, "color"> & {
  * values and images that fail to load both fall back to the animated mascot,
  * so an old/corrupt profile can never leave a broken-image icon in the app.
  */
-export function BotAvatar({ bot, size = 44, label, imageShape = "circle", ...mascotProps }: BotAvatarProps) {
+export function BotAvatar({ bot, size = 44, label, className, imageShape = "circle", ...mascotProps }: BotAvatarProps) {
   const profile = botAvatarProfile(bot);
   const [imageFailed, setImageFailed] = useState(false);
 
   useEffect(() => setImageFailed(false), [profile.avatarUrl]);
 
-  if (profile.avatarCrop === "mascot" || !profile.avatarUrl || imageFailed) {
+  // Keep main's persisted "initials" default compatible without migrating profiles.
+  if (profile.avatarCrop === "initials" || !profile.avatarUrl || imageFailed) {
     return (
-      <MausAvatar
-        {...mascotProps}
-        color={bot.color}
-        size={size}
-        label={label ?? bot.name}
-      />
+      <span className={`inline-flex shrink-0 select-none ${className ?? ""}`}>
+        <MausAvatar
+          state={bot.busy ? "working" : bot.unread ? "notifying" : "idle"}
+          {...mascotProps}
+          color={bot.color}
+          size={size}
+          label={label ?? bot.name ?? "Agent avatar"}
+        />
+      </span>
     );
   }
 
@@ -265,9 +273,40 @@ export function BotAvatar({ bot, size = 44, label, imageShape = "circle", ...mas
       height={size}
       draggable={false}
       onError={() => setImageFailed(true)}
-      className="block shrink-0 bg-raised object-cover"
+      className={`block shrink-0 bg-raised object-cover ${className ?? ""}`}
       style={{ width: size, height: size, borderRadius: imageShape === "square" ? 0 : "50%" }}
     />
+  );
+}
+
+export function AgentInitialsAvatar({
+  name,
+  color,
+  size = 44,
+  label,
+  className,
+}: {
+  name: string;
+  color: MausColor;
+  size?: number;
+  label?: string;
+  className?: string;
+}) {
+  return (
+    <span
+      aria-label={label ?? `${name || "Unnamed agent"} avatar`}
+      className={`flex shrink-0 select-none items-center justify-center rounded-full font-semibold ${className ?? ""}`}
+      style={{
+        width: size,
+        height: size,
+        backgroundColor: MAUS_COLORS[color],
+        color: agentAvatarForeground(color),
+        fontSize: Math.max(9, size * 0.36),
+        letterSpacing: "-0.035em",
+      }}
+    >
+      {agentInitials(name)}
+    </span>
   );
 }
 

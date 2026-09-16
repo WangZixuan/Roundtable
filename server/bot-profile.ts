@@ -75,7 +75,7 @@ export function parseBotProfilePatch(input: BotProfilePatchInput, strict = false
     }
     const issue = parsed.error.issues[0];
     if (issue?.path[0] === "avatarCrop") {
-      return { ok: false, error: "avatarCrop must be mascot or circle" };
+      return { ok: false, error: "avatarCrop must be initials or circle" };
     }
     return { ok: false, error: issue?.message ?? "invalid profile patch" };
   }
