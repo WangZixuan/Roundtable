@@ -228,6 +228,7 @@ function connectedAppsIntegration(botId: string, threadId: string) {
 function askBotAndWait(targetBotId: string, message: string, depth: number, fromBotId?: string): Promise<string> {
   const target = store.bot(targetBotId);
   if (!target) return Promise.resolve("(no such bot)");
+  store.ensureActiveTask(targetBotId);
   const threadId = target.threadId;
   return new Promise((resolve) => {
     let text = "";
@@ -313,8 +314,9 @@ const publicBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => ({
 
 const pagedPublicBot = (
   bot: NonNullable<ReturnType<typeof store.bot>>,
-  limit: number | undefined,
+  limit: number | undefined = undefined,
 ) => {
+  if (!bot.threadId) return { ...publicBot(bot), hasMore: false };
   if (limit === undefined) return publicBot(bot);
   const latest = latestMessage(bot.threadId);
   const active = activeLeafMessage(bot.threadId) ?? latest;
@@ -1140,7 +1142,7 @@ const runDelegatedTurn: Parameters<typeof drainDelegations>[3] = (toBotId, text,
     // unavailable provider. Unhandled, that rejection is fatal to the
     // harness (Node's default), which in the packaged app kills the server
     // child. Every delegation failure has to land as a chip instead.
-    const targetThreadId = store.bot(toBotId)?.threadId;
+    const targetThreadId = store.ensureActiveTask(toBotId)?.threadId;
     if (targetThreadId) delegationWatch.set(targetThreadId, { channelId: channel?.id, toBotId });
     let failureReported = false;
     const reportStartFailure = (error: unknown) => {
@@ -4240,6 +4242,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse): 
       if (!text) return json(res, 400, { error: "text required" });
       const bot = store.bot(m[1]);
       if (!bot) return json(res, 404, { error: "no such bot" });
+      if (!store.activeTask(bot.id)) return json(res, 409, { error: "Create a chat before sending a message" });
       const replyTo = resolveReplyTarget(bot.threadId, body.replyToId);
       // Claude can accept the message inside its live turn. If the write
       // loses a race with turn settlement, or the engine cannot steer, the
@@ -4428,19 +4431,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse): 
     // The bot record answers with its messages because switching tasks
     // changes which transcript is live, and a partial patch would leave
     // the client showing the previous task's conversation.
-    const botWithThread = (
-      bot: NonNullable<ReturnType<typeof store.bot>>,
-      limit: number | undefined = undefined,
-    ) => ({
-      ...wireBot(bot),
-      ...messagePage(bot.threadId, limit),
-      lastMessage: messagePreview(
-        store.messagesFor(bot.threadId).find((message) => message.id === store.activeLeaf(bot.threadId)) ??
-          store.messagesFor(bot.threadId).at(-1),
-      ),
-      activeLeafId: store.activeLeaf(bot.threadId),
-      tasks: store.tasks(bot.id).map(wireTask),
-    });
+    const botWithThread = pagedPublicBot;
 
     m = path.match(/^\/api\/bots\/([\w-]+)\/tasks$/);
     if (m && method === "POST") {
@@ -4460,9 +4451,9 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse): 
         hasMore: "hasMore" in fresh && fresh.hasMore === true,
       });
     }
-    m = path.match(/^\/api\/bots\/([\w-]+)\/tasks\/([\w-]+)$/);
-    if (m && method === "POST") {
-      const switched = store.switchTask(m[1], m[2]);
+    const taskRoute = path.match(/^\/api\/bots\/([\w-]+)\/tasks\/([\w-]+)$/);
+    if (taskRoute && method === "POST") {
+      const switched = store.switchTask(taskRoute[1], taskRoute[2]);
       if (!switched) return json(res, 404, { error: "no such task" });
       const limit = pageSize(url.searchParams.get("messages"));
       if (limit === null) return json(res, 400, { error: "messages must be a non-negative whole number" });
@@ -4470,11 +4461,11 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse): 
       broadcast({ kind: "bot", bot: fresh });
       return json(res, 200, { bot: fresh, hasMore: "hasMore" in fresh && fresh.hasMore === true });
     }
-    if (m && method === "PATCH") {
+    if (taskRoute && method === "PATCH") {
       const body = await readBody(req);
-      const task = store.renameTask(m[1], m[2], String(body.title ?? ""));
+      const task = store.renameTask(taskRoute[1], taskRoute[2], String(body.title ?? ""));
       if (!task) return json(res, 404, { error: "no such task" });
-      const fresh = botWithThread(store.bot(m[1])!);
+      const fresh = botWithThread(store.bot(taskRoute[1])!);
       broadcast({ kind: "bot", bot: fresh });
       return json(res, 200, { task: wireTask(task) });
     }
@@ -4490,13 +4481,13 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse): 
       if (!task) return json(res, 404, { error: "no such task" });
       return json(res, 200, { task: wireTask(task) });
     }
-    if (m && method === "DELETE") {
-      const bot = store.bot(m[1]);
-      if (bot?.busy && (bot.threadId === m[2] || routines!.isActiveThread(m[2]))) {
+    if (taskRoute && method === "DELETE") {
+      const bot = store.bot(taskRoute[1]);
+      if (bot?.busy && (bot.threadId === taskRoute[2] || routines!.isActiveThread(taskRoute[2]))) {
         return json(res, 409, { error: "this task is running — stop it first" });
       }
-      const updated = store.deleteTask(m[1], m[2]);
-      if (!updated) return json(res, 400, { error: "a bot keeps at least one task" });
+      const updated = store.deleteTask(taskRoute[1], taskRoute[2]);
+      if (!updated) return json(res, 404, { error: "no such task" });
       const limit = pageSize(url.searchParams.get("messages"));
       if (limit === null) return json(res, 400, { error: "messages must be a non-negative whole number" });
       const fresh = botWithThread(updated, limit);

@@ -17,7 +17,7 @@ async function freshStore() {
   vi.stubEnv("HOME", home);
   vi.stubEnv("USERPROFILE", home);
   const { Store, UNTITLED_TASK, titleFromMessage } = await import("./store.ts");
-  return { store: new Store(() => ({ instanceId: "claude", model: "m" })), UNTITLED_TASK, titleFromMessage };
+  return { Store, store: new Store(() => ({ instanceId: "claude", model: "m" })), UNTITLED_TASK, titleFromMessage };
 }
 
 afterEach(async () => {
@@ -98,7 +98,7 @@ describe("tasks", () => {
     expect(titleFromMessage("x".repeat(80))).toHaveLength(48);
   });
 
-  it("deletes a task with its transcript, but never the last one", async () => {
+  it("deletes any chat and its transcript, including the agent's last chat", async () => {
     const { store } = await freshStore();
     const bot = store.createBot();
     const first = bot.threadId;
@@ -111,8 +111,66 @@ describe("tasks", () => {
     expect(store.bot(bot.id)!.threadId).toBe(first);
     expect(store.messagesFor(second.threadId)).toHaveLength(0);
 
+    expect(store.deleteTask(bot.id, first)).toBe(bot);
+    expect(store.tasks(bot.id)).toEqual([]);
+    expect(store.bot(bot.id)!.threadId).toBe("");
+    expect(store.activeTask(bot.id)).toBeUndefined();
+    expect(store.botByThread(first)).toBeNull();
+    expect(store.botByThread("")).toBeNull();
+    expect(store.messagesFor(first)).toEqual([]);
     expect(store.deleteTask(bot.id, first)).toBeNull();
-    expect(store.tasks(bot.id)).toHaveLength(1);
+  });
+
+  it("preserves a chatless agent across reload and starts a genuinely fresh chat", async () => {
+    const { Store, store } = await freshStore();
+    const bot = store.createBot({ name: "Persistent agent", description: "Keep this profile" });
+    const deletedThread = bot.threadId;
+    store.setResumeCursor(bot.id, "claude", "old-provider-session");
+    store.patchBot(bot.id, { unread: true, pinnedMessageId: "old-pin", rewound: true });
+    store.deleteTask(bot.id, deletedThread);
+    const reloaded = new Store(() => ({ instanceId: "claude", model: "m" }));
+    expect(reloaded.bot(bot.id)).toMatchObject({
+      name: "Persistent agent", description: "Keep this profile",
+      tasks: [], threadId: "", resumeCursors: {}, unread: false,
+    });
+    expect(reloaded.bot(bot.id)).not.toHaveProperty("pinnedMessageId");
+    expect(reloaded.bot(bot.id)).not.toHaveProperty("rewound");
+    expect(reloaded.messagesFor(deletedThread)).toEqual([]);
+    const chat = reloaded.ensureActiveTask(bot.id)!;
+    expect(chat.threadId).not.toBe(deletedThread);
+    expect(chat.resumeCursors).toEqual({});
+    expect(reloaded.messagesFor(chat.threadId)).toEqual([]);
+    expect(reloaded.botByThread(chat.threadId)?.id).toBe(bot.id);
+    expect(reloaded.tasks(bot.id)).toHaveLength(1);
+    expect(reloaded.ensureActiveTask(bot.id)).toBe(chat);
+  });
+
+  it("can run a detached task for an agent without creating an active direct chat", async () => {
+    const { store } = await freshStore();
+    const bot = store.createBot();
+    store.deleteTask(bot.id, bot.threadId);
+    const detached = store.createTask(bot.id, "Channel work", false)!;
+    expect(store.bot(bot.id)?.threadId).toBe("");
+    expect(store.botByThread(detached.threadId)?.id).toBe(bot.id);
+    expect(store.activeTask(bot.id)).toBeUndefined();
+    expect(store.switchTask(bot.id, detached.threadId)?.threadId).toBe(detached.threadId);
+    expect(store.createTask("missing-agent")).toBeNull();
+  });
+
+  it("keeps channel membership and can create a member session after the last chat is deleted", async () => {
+    const { store } = await freshStore();
+    const bot = store.createBot();
+    const channel = store.createGroup("Project", [bot.id]);
+    store.deleteTask(bot.id, bot.threadId);
+    expect(store.group(channel.id)?.memberIds).toEqual([bot.id]);
+    const session = store.ensureChannelSession(channel.id, bot.id)!;
+    expect(session.threadId).not.toBe("");
+    expect(store.botByThread(session.threadId)?.id).toBe(bot.id);
+    expect(store.activeTask(bot.id)).toBeUndefined();
+    store.appendMessage(session.threadId, { role: "bot", kind: "text", text: "Still available" });
+    expect(store.messagesFor(channel.threadId)).toEqual([
+      expect.objectContaining({ text: "Still available", from: expect.objectContaining({ botId: bot.id }) }),
+    ]);
   });
 
   it("adopts a pre-tasks bot's endless thread as its first task", async () => {
