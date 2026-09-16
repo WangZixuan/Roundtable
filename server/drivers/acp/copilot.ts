@@ -25,7 +25,8 @@ export const STATIC_COPILOT_MODELS: ModelCatalog = {
 
 const MODEL_ID = /^[a-z0-9][a-z0-9._:+/-]*$/i;
 const EXEC_TIMEOUT_MS = 8_000;
-const ACP_MODEL_TIMEOUT_MS = 15_000;
+// Account-specific session setup can take ~30s even after initialize succeeds.
+const ACP_MODEL_TIMEOUT_MS = 60_000;
 const MODEL_CACHE_TTL_MS = 60_000;
 
 type StoredCopilotUser = Record<string, string>;
@@ -180,8 +181,8 @@ export async function fetchCopilotModels(
 ): Promise<ModelCatalog> {
   // Start the help fallback at the same time as the account-specific ACP
   // probe. A CLI that accepts `--acp` but never completes the handshake can
-  // consume the full 15-second ACP deadline; starting the 8-second fallback
-  // only afterwards made desktop startup exceed Electron's host deadline.
+  // consume the full ACP deadline; don't add another 8 seconds afterwards.
+  // Electron acknowledges IPC readiness before waiting for provider discovery.
   const [session, help] = await Promise.all([
     probeCopilotAcpModels(cli, env, spawnProcess),
     execText(run, cli, ["--help"], env),
@@ -276,6 +277,11 @@ const support = (run: typeof execCli, spawnProcess: typeof spawnCli): AcpSupport
     const cachedModels = modelCache.get(config);
     if (cachedModels && cachedModels.expiresAt > Date.now()) return cachedModels.catalog;
     const catalog = await fetchCopilotModels(config.cli || "copilot", environment, run, spawnProcess);
+    if (catalog === STATIC_COPILOT_MODELS) {
+      console.warn("Copilot model discovery failed; using the last known catalog or built-in defaults. Refresh to retry.");
+      // A failed probe must not erase a live catalog or delay the next retry.
+      return cachedModels?.catalog ?? catalog;
+    }
     modelCache.set(config, { catalog, expiresAt: Date.now() + MODEL_CACHE_TTL_MS });
     return catalog;
   };

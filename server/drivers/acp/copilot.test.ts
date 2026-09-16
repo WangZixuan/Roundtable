@@ -1,10 +1,11 @@
 import { EventEmitter } from "node:events";
+import { ChildProcess } from "node:child_process";
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ensureDirs } from "../../config.ts";
 import { resetPathCacheForTests } from "../../env-path.ts";
@@ -14,18 +15,43 @@ import {
   classifyCopilotError,
   copilotIsAuthenticated,
   CopilotAgentDriver,
+  createCopilotAgentDriver,
   decodeCopilotModelHelp,
   decodeCopilotSessionModels,
   fetchCopilotModels,
   probeCopilotAcpModels,
+  STATIC_COPILOT_MODELS,
 } from "./copilot.ts";
+import type { execCli, spawnCli } from "../../procs.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "testing", "fake-acp-cli.ts");
+
+function fakeProcess() {
+  const stdin = new PassThrough();
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  const stdio: ReturnType<typeof spawnCli>["stdio"] = [stdin, stdout, stderr, null, null];
+  return Object.assign(new ChildProcess(), {
+    stdin,
+    stdout,
+    stderr,
+    stdio,
+  });
+}
+
+const sessionModels = {
+  models: {
+    currentModelId: "gpt-6-astra",
+    availableModels: [{ modelId: "gpt-6-astra", name: "GPT-6 Astra" }],
+  },
+};
 
 describe("GitHub Copilot ACP support", () => {
   const scratchDirs: string[] = [];
 
   afterEach(async () => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
     delete process.env.FAKE_ACP_DUMP;
     delete process.env.COPILOT_GITHUB_TOKEN;
     delete process.env.XAI_API_KEY;
@@ -135,6 +161,108 @@ describe("GitHub Copilot ACP support", () => {
         { id: "gpt-5.6-sol", label: "GPT 5.6 Sol" },
       ],
     });
+  });
+
+  it("waits for a live catalog that arrives after the former 15-second deadline", async () => {
+    vi.useFakeTimers();
+    const child = fakeProcess();
+    const spawnProcess: typeof spawnCli = () => child;
+    const run: typeof execCli = (_cli, _args, _options, callback) => callback(null, "Usage: copilot");
+    const settled = vi.fn();
+    const pending = fetchCopilotModels("copilot", {}, run, spawnProcess).then(settled);
+    child.stdout.write(`${JSON.stringify({ id: 1, result: {} })}\n`);
+    await vi.advanceTimersByTimeAsync(29_000);
+    expect(settled).not.toHaveBeenCalled();
+    child.stdout.write(`${JSON.stringify({ id: 2, result: sessionModels })}\n`);
+    await pending;
+    expect(settled).toHaveBeenCalledWith({
+      default: "gpt-6-astra",
+      options: [{ id: "gpt-6-astra", label: "GPT-6 Astra" }],
+    });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("still bounds a stalled model probe at 60 seconds", async () => {
+    vi.useFakeTimers();
+    const child = fakeProcess();
+    const settled = vi.fn();
+    const pending = probeCopilotAcpModels("copilot", {}, () => child).then(settled);
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(settled).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await pending;
+    expect(settled).toHaveBeenCalledWith(null);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("retains a live catalog after a failed refresh and retries without caching the failure", async () => {
+    vi.useFakeTimers();
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let fail = false;
+    const spawnProcess = vi.fn<typeof spawnCli>(() => {
+      const child = fakeProcess();
+      queueMicrotask(() => {
+        if (fail) child.emit("error", new Error("Discovery unavailable"));
+        else child.stdout.write(`${JSON.stringify({ id: 2, result: sessionModels })}\n`);
+      });
+      return child;
+    });
+    const run: typeof execCli = (_cli, _args, _options, callback) => callback(null, "Usage: copilot");
+    const driver = createCopilotAgentDriver(run, spawnProcess);
+    const instance = await driver.create({
+      instanceId: "copilot",
+      displayName: "GitHub Copilot",
+      enabled: true,
+      environment: {},
+      config: driver.decodeConfig(undefined),
+    });
+    try {
+      expect(instance.models.default).toBe("gpt-6-astra");
+      await instance.refreshModels?.();
+      expect(spawnProcess).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(60_001);
+      fail = true;
+      await instance.refreshModels?.();
+      expect(instance.models.default).toBe("gpt-6-astra");
+      expect(warning).toHaveBeenCalledWith(expect.stringContaining("Copilot model discovery failed"));
+      fail = false;
+      await instance.refreshModels?.();
+      expect(spawnProcess).toHaveBeenCalledTimes(3);
+      expect(instance.models.default).toBe("gpt-6-astra");
+    } finally {
+      await instance.dispose();
+    }
+  });
+
+  it("does not cache the built-in fallback after an initial discovery failure", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    let fail = true;
+    const spawnProcess = vi.fn<typeof spawnCli>(() => {
+      const child = fakeProcess();
+      queueMicrotask(() => {
+        if (fail) child.emit("error", new Error("Discovery unavailable"));
+        else child.stdout.write(`${JSON.stringify({ id: 2, result: sessionModels })}\n`);
+      });
+      return child;
+    });
+    const run: typeof execCli = (_cli, _args, _options, callback) => callback(null, "Usage: copilot");
+    const driver = createCopilotAgentDriver(run, spawnProcess);
+    const instance = await driver.create({
+      instanceId: "copilot",
+      displayName: "GitHub Copilot",
+      enabled: true,
+      environment: {},
+      config: driver.decodeConfig(undefined),
+    });
+    try {
+      expect(instance.models).toEqual(STATIC_COPILOT_MODELS);
+      fail = false;
+      await instance.refreshModels?.();
+      expect(spawnProcess).toHaveBeenCalledTimes(2);
+      expect(instance.models.default).toBe("gpt-6-astra");
+    } finally {
+      await instance.dispose();
+    }
   });
 
   it("detects token, BYOK, and stored-login metadata without reading a secret", async () => {
